@@ -1,0 +1,27 @@
+# Build
+**/bin/
+**/obj/
+**/dist/
+**/out/
+**/.angular/
+**/node_modules/
+
+# IDE / OS
+.vs/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Logs / secrets
+**/logs/
+*.log
+appsettings.Local.json
+appsettings.*.local.json
+.env
+*.pfx
+
+# Test results
+**/TestResults/
+**/coverage/

@@ -1,0 +1,26 @@
+:root {
+  color: #101828;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  line-height: 1.45;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #f8fafc;
+}
+
+h1, h2, p { margin-top: 0; }
+
+button {
+  border: 1px solid #98a2b3;
+  background: #fff;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -1,0 +1,57 @@
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+}
+
+.nav {
+  background: #0f2744;
+  color: #fff;
+  padding: 1.5rem 1rem;
+}
+
+.brand {
+  font-family: "Segoe UI", Georgia, serif;
+  font-size: 1.2rem;
+  margin-bottom: 1.5rem;
+}
+
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+nav a {
+  color: #d0d5dd;
+  text-decoration: none;
+  padding: 0.55rem 0.7rem;
+}
+
+nav a.active,
+nav a:hover {
+  background: #16365c;
+  color: #fff;
+}
+
+main {
+  padding: 1.5rem;
+  background: linear-gradient(180deg, #eef3f8 0%, #f8fafc 40%);
+}
+
+@media (max-width: 768px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  nav {
+    flex-direction: row;
+  }
+}

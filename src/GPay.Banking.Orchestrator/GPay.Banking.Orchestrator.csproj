@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GPay.Banking.Contracts\GPay.Banking.Contracts.csproj" />
+    <ProjectReference Include="..\GPay.Banking.Infrastructure\GPay.Banking.Infrastructure.csproj" />
+    <ProjectReference Include="..\GPay.Banking.Persistence\GPay.Banking.Persistence.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="web.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

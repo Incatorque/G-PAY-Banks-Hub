@@ -1,0 +1,34 @@
+<section class="panel">
+  <header class="panel__header">
+    <div>
+      <h1>Queue depths</h1>
+      <p>Ready message counts for each known RabbitMQ queue</p>
+    </div>
+    <button type="button" (click)="refresh()" [disabled]="loading()">Refresh</button>
+  </header>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  }
+
+  <table>
+    <thead>
+      <tr>
+        <th>Queue</th>
+        <th>Bank</th>
+        <th>Messages</th>
+        <th>Consumers</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (queue of queues(); track queue.queueName) {
+        <tr>
+          <td>{{ queue.queueName }}</td>
+          <td>{{ queue.bank || '—' }}</td>
+          <td>{{ queue.messageCount }}</td>
+          <td>{{ queue.consumerCount }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</section>

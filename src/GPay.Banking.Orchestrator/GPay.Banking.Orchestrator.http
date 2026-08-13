@@ -1,0 +1,6 @@
+@GPay.Banking.Orchestrator_HostAddress = http://localhost:5187
+
+GET {{GPay.Banking.Orchestrator_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

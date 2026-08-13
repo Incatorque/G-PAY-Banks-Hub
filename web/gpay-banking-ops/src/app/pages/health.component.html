@@ -1,0 +1,40 @@
+<section class="panel">
+  <header class="panel__header">
+    <div>
+      <h1>Platform health</h1>
+      <p>Orchestrator, RabbitMQ, and bank service status</p>
+    </div>
+    <button type="button" (click)="refresh()" [disabled]="loading()">Refresh</button>
+  </header>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  }
+
+  @if (health(); as h) {
+    <div class="overall" [ngClass]="statusLabel(h.overallStatus).toLowerCase()">
+      Overall: {{ statusLabel(h.overallStatus) }}
+      <span class="muted">Checked {{ h.checkedAtUtc | date: 'medium' }}</span>
+    </div>
+
+    <div class="grid">
+      @for (service of h.services; track service.serviceName) {
+        <article class="card" [ngClass]="statusLabel(service.status).toLowerCase()">
+          <h2>{{ service.serviceName }}</h2>
+          <p><strong>{{ statusLabel(service.status) }}</strong></p>
+          <p>{{ service.detail }}</p>
+          <p class="muted">Responding: {{ service.isResponding ? 'Yes' : 'No' }}</p>
+          <ul>
+            @for (queue of service.queues; track queue.queueName) {
+              <li>
+                {{ queue.queueName }} — {{ queue.messageCount }} msgs,
+                {{ queue.consumerCount }} consumers
+                @if (queue.isClogged) { <em>(clogged)</em> }
+              </li>
+            }
+          </ul>
+        </article>
+      }
+    </div>
+  }
+</section>
