@@ -38,7 +38,7 @@ public class AbsaSessionProviderTests
         var signer = new Mock<IAbsaRequestSigner>();
         var options = Options.Create(new AbsaCapiOptions
         {
-            BaseUrl = "https://mercurius-uat.cib.digital",
+            BaseUrl = "https://capi-uat.absa.co.za",
             Username = "demo",
             Password = "secret",
             ClientApiKey = "key",

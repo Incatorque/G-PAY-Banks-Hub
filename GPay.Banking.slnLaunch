@@ -1,0 +1,31 @@
+[
+  {
+    "Name": "Orchestrator (Swagger)",
+    "Projects": [
+      {
+        "Path": "src\\GPay.Banking.Orchestrator\\GPay.Banking.Orchestrator.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      },
+      {
+        "Path": "src\\GPay.Banking.Absa\\GPay.Banking.Absa.csproj",
+        "Action": "Start"
+      }
+    ]
+  },
+  {
+    "Name": "Orchestrator + Absa worker",
+    "Projects": [
+      {
+        "Path": "src\\GPay.Banking.Orchestrator\\GPay.Banking.Orchestrator.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      },
+      {
+        "Path": "src\\GPay.Banking.Absa\\GPay.Banking.Absa.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      }
+    ]
+  }
+]

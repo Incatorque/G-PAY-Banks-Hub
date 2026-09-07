@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace GPay.Banking.Absa.Mapping;
 
 /// <summary>
-/// Maps GPay AVS DTOs to/from Absa CAPI AVS payloads (MIG – AVS API v1).
+/// Maps GPay AVS DTOs to/from Absa CAPI AVS payloads (MIG – AVS API v00.5).
 /// </summary>
 public interface IAbsaAvsMapper
 {
@@ -120,19 +120,25 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
         var accountOpen = ToTriState(response.GetValue("Account Open"));
         var idMatch = ToYnU(response.GetValue("ID Matched"));
         var nameMatch = ToYnU(response.GetValue("Name Matched"));
+        var initialsMatch = ToYnU(response.GetValue("Initials Match"));
+        var accountTypeMatch = ToYnU(response.GetValue("Account Type Matched"));
         var emailMatch = ToYnU(response.GetValue("Email Address Match"));
         var cellMatch = ToYnU(response.GetValue("Cell Number Match"));
         var openLonger = ToNullableBool(response.GetValue("Account Open Longer Than 3 Months"));
 
         var identityOk = IsYesOrUnverifiedOk(idMatch);
         var nameOk = IsYesOrUnverifiedOk(nameMatch);
+        var initialsOk = IsYesOrUnverifiedOk(initialsMatch);
+        var accountTypeOk = IsYesOrUnverifiedOk(accountTypeMatch);
         var accountOk = accountFound == true && accountOpen == true;
 
         var isBusinessSuccess =
             response.IsSuccessStatus &&
             accountOk &&
             identityOk &&
-            nameOk;
+            nameOk &&
+            initialsOk &&
+            accountTypeOk;
 
         return new AccountVerificationResponse
         {
@@ -142,6 +148,8 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
             AccountActive = openLonger ?? accountOpen,
             IdentityMatch = idMatch,
             NameMatch = nameMatch,
+            InitialsMatch = initialsMatch,
+            AccountTypeMatch = accountTypeMatch,
             EmailMatch = emailMatch,
             PhoneMatch = cellMatch,
             AccountOpenLongerThan3Months = openLonger,

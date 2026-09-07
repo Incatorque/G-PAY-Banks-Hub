@@ -56,14 +56,14 @@ public class AbsaCapiClientTests
                 };
             });
 
-        var http = new HttpClient(handler.Object) { BaseAddress = new Uri("https://mercurius-uat.cib.digital/") };
+        var http = new HttpClient(handler.Object) { BaseAddress = new Uri("https://capi-uat.absa.co.za/") };
         var sessions = new Mock<IAbsaSessionProvider>();
         sessions.Setup(s => s.GetSessionAsync(It.IsAny<CancellationToken>())).ReturnsAsync("SESSION-ABC");
         var signer = new Mock<IAbsaRequestSigner>();
 
         var options = Options.Create(new AbsaCapiOptions
         {
-            BaseUrl = "https://mercurius-uat.cib.digital",
+            BaseUrl = "https://capi-uat.absa.co.za",
             Username = "user",
             Password = "pass",
             CapiCode = "10068",
@@ -145,13 +145,13 @@ public class AbsaCapiClientTests
                 };
             });
 
-        var http = new HttpClient(handler.Object) { BaseAddress = new Uri("https://mercurius-uat.cib.digital/") };
+        var http = new HttpClient(handler.Object) { BaseAddress = new Uri("https://capi-uat.absa.co.za/") };
         var sessions = new Mock<IAbsaSessionProvider>();
         sessions.Setup(s => s.GetSessionAsync(It.IsAny<CancellationToken>())).ReturnsAsync("SESSION-ABC");
         var signer = new Mock<IAbsaRequestSigner>();
         var options = Options.Create(new AbsaCapiOptions
         {
-            BaseUrl = "https://mercurius-uat.cib.digital",
+            BaseUrl = "https://capi-uat.absa.co.za",
             Username = "user",
             Password = "pass",
             CapiCode = "10068",

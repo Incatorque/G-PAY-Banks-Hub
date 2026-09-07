@@ -3,7 +3,7 @@ using GPay.Banking.Contracts.Enums;
 namespace GPay.Banking.Contracts.Messaging;
 
 /// <summary>
-/// Shared RabbitMQ response payload published back to the orchestrator.
+/// Normalized bank response returned directly to the orchestrator via RabbitMQ reply-to routing.
 /// </summary>
 public sealed class BankResponseMessage
 {

@@ -1,0 +1,19 @@
+{
+  "ConnectionStrings": {
+    "Banking": "Data Source=YOUR_SERVER;Initial Catalog=GPayDev;..."
+  },
+  "Database": {
+    "ConnectionStringName": "Banking",
+    "UseInMemory": false,
+    "EnsureCreated": false
+  },
+  "AbsaCapi": {
+    "UseSimulator": false,
+    "Username": "SET_ABSA_CAPI_USERNAME",
+    "Password": "SET_ABSA_CAPI_PASSWORD",
+    "CapiCode": "SET_ABSA_CAPI_CODE",
+    "ClientApiKey": "SET_ABSA_CLIENT_API_KEY",
+    "ClientCertificatePath": "C:\\path\\to\\certificate.p12",
+    "ClientCertificatePassword": "SET_CERT_PASSWORD"
+  }
+}

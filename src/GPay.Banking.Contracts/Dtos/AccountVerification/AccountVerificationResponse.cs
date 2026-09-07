@@ -36,6 +36,11 @@ public sealed class AccountVerificationResponse
     public string? NameMatch { get; init; }
 
     /// <summary>
+    /// Initials match result: Y, N, or U (Absa AVS v00.5 ValueList).
+    /// </summary>
+    public string? InitialsMatch { get; init; }
+
+    /// <summary>
     /// Email match result: Y, N, or U.
     /// </summary>
     public string? EmailMatch { get; init; }

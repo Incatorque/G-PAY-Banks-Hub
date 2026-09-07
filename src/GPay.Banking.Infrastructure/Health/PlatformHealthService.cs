@@ -102,7 +102,7 @@ public sealed class PlatformHealthService : IPlatformHealthService
         {
             try
             {
-                await _messageBus.DeclareQueueAsync(QueueNames.OrchestratorResponses, cancellationToken);
+                await _messageBus.DeclareQueueAsync(QueueNames.OrchestratorRequests, cancellationToken);
                 mqConnected = _messageBus.IsConnected;
             }
             catch (Exception ex)
@@ -111,9 +111,8 @@ public sealed class PlatformHealthService : IPlatformHealthService
             }
         }
 
-        var responseQueue = await BuildQueueHealthAsync(QueueNames.OrchestratorResponses, cancellationToken);
         var requestQueue = await BuildQueueHealthAsync(QueueNames.OrchestratorRequests, cancellationToken);
-        var queues = new[] { responseQueue, requestQueue };
+        var queues = new[] { requestQueue };
 
         var status = !mqConnected
             ? ServiceHealthStatus.Critical
@@ -192,8 +191,7 @@ public sealed class PlatformHealthService : IPlatformHealthService
     {
         var list = new List<(string, string?)>
         {
-            (QueueNames.OrchestratorRequests, null),
-            (QueueNames.OrchestratorResponses, null)
+            (QueueNames.OrchestratorRequests, null)
         };
 
         foreach (var bank in _bankingOptions.Banks)

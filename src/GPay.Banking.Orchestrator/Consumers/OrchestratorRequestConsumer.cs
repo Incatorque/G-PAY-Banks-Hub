@@ -38,26 +38,34 @@ public sealed class OrchestratorRequestConsumer : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await _messageBus.DeclareQueueAsync(QueueNames.OrchestratorRequests, stoppingToken);
-        await _messageBus.SubscribeAsync<BankRequestMessage>(
-            QueueNames.OrchestratorRequests,
-            HandleAsync,
-            stoppingToken);
-
-        _logger.LogInformation("Orchestrator request consumer started on {Queue}", QueueNames.OrchestratorRequests);
-
-        try
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // shutdown
+            try
+            {
+                await _messageBus.DeclareQueueAsync(QueueNames.OrchestratorRequests, stoppingToken);
+                await _messageBus.SubscribeAsync<BankRequestMessage>(
+                    QueueNames.OrchestratorRequests,
+                    HandleAsync,
+                    stoppingToken);
+
+                _logger.LogInformation("Orchestrator request consumer started on {Queue}", QueueNames.OrchestratorRequests);
+                await Task.Delay(Timeout.Infinite, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Orchestrator request consumer failed to start. Retrying in 5s.");
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
         }
     }
 
-    private async Task HandleAsync(BankRequestMessage message, CancellationToken cancellationToken)
+    private async Task HandleAsync(ConsumedMessage<BankRequestMessage> consumed, CancellationToken cancellationToken)
     {
+        var message = consumed.Payload;
         _logger.LogInformation(
             "MQ ingress {Operation} for {Bank} CorrelationId={CorrelationId}",
             message.Operation,

@@ -13,9 +13,9 @@ public static class QueueNames
     public const string OrchestratorRequests = "gpay.banking.orchestrator.requests";
 
     /// <summary>
-    /// Orchestrator response queue receiving bank service replies.
+    /// RabbitMQ pseudo-queue used for direct RPC replies to the orchestrator.
     /// </summary>
-    public const string OrchestratorResponses = "gpay.banking.orchestrator.responses";
+    public const string DirectReplyTo = "amq.rabbitmq.reply-to";
 
     /// <summary>
     /// Builds the request queue name for a bank.

@@ -23,7 +23,7 @@ public class PlatformHealthServiceTests
         var sut = CreateSut(bus.Object);
         var queues = await sut.GetQueueDepthsAsync();
 
-        queues.Should().Contain(q => q.QueueName == QueueNames.OrchestratorResponses);
+        queues.Should().Contain(q => q.QueueName == QueueNames.OrchestratorRequests);
         queues.Should().Contain(q => q.QueueName == "gpay.banking.absa.requests" && q.Bank == "Absa");
         queues.Should().OnlyContain(q => q.MessageCount == 12 && q.ConsumerCount == 1);
     }

@@ -3,6 +3,7 @@ namespace GPay.Banking.Absa.Configuration;
 /// <summary>
 /// Absa Corporate API (CAPI) connection and AVS settings per MIG – AVS API v1.
 /// Auth: <c>POST /api/User/Authenticate</c> → Session; AVS: ValidateBankDetails (+ ValidateBankReference for non-Absa).
+/// Spec: MIG – AVS API v00.5 (June 2024).
 /// </summary>
 public sealed class AbsaCapiOptions
 {
@@ -12,9 +13,9 @@ public sealed class AbsaCapiOptions
     public const string SectionName = "AbsaCapi";
 
     /// <summary>
-    /// CAPI base URL. UAT (MIG): https://mercurius-uat.cib.digital — Prod: https://capi.absa.co.za
+    /// CAPI base URL. UAT (MIG v00.5): https://capi-uat.absa.co.za — Prod: https://capi.absa.co.za
     /// </summary>
-    public string BaseUrl { get; set; } = "https://mercurius-uat.cib.digital";
+    public string BaseUrl { get; set; } = "https://capi-uat.absa.co.za";
 
     /// <summary>
     /// Authenticate path.

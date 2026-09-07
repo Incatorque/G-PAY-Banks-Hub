@@ -9,11 +9,12 @@ using GPay.Banking.Contracts.Enums;
 using GPay.Banking.Contracts.Interfaces;
 using GPay.Banking.Contracts.Messaging;
 using GPay.Banking.Infrastructure.Messaging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace GPay.Banking.Absa.Consumers;
 
 /// <summary>
-/// Consumes Absa request queue messages, invokes capability services, and publishes responses.
+/// Background worker that consumes Absa request queue messages, calls Absa CAPI, and replies directly to the orchestrator.
 /// </summary>
 public sealed class AbsaRequestConsumer : BackgroundService
 {
@@ -40,30 +41,49 @@ public sealed class AbsaRequestConsumer : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var queue = QueueNames.BankRequests(BankCode.Absa);
-        await _messageBus.DeclareQueueAsync(queue, stoppingToken);
-        await _messageBus.DeclareQueueAsync(QueueNames.OrchestratorResponses, stoppingToken);
-        await _messageBus.SubscribeAsync<BankRequestMessage>(queue, HandleAsync, stoppingToken);
 
-        _logger.LogInformation("Absa request consumer started on {Queue}", queue);
-
-        try
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // shutdown
+            try
+            {
+                await _messageBus.DeclareQueueAsync(queue, stoppingToken);
+                await _messageBus.SubscribeAsync<BankRequestMessage>(queue, HandleAsync, stoppingToken);
+                _logger.LogInformation("Absa request consumer started on {Queue}", queue);
+                await Task.Delay(Timeout.Infinite, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Absa request consumer failed to start. Retrying in 5s. Is RabbitMQ running on localhost:5672?");
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
         }
     }
 
-    private async Task HandleAsync(BankRequestMessage message, CancellationToken cancellationToken)
+    private async Task HandleAsync(ConsumedMessage<BankRequestMessage> consumed, CancellationToken cancellationToken)
     {
+        var message = consumed.Payload;
+
         _logger.LogInformation(
             "Processing Absa {Operation} CorrelationId={CorrelationId}",
             message.Operation,
             message.CorrelationId);
 
-        using var scope = _scopeFactory.CreateScope();
+        if (string.IsNullOrWhiteSpace(consumed.ReplyTo))
+        {
+            _logger.LogError(
+                "Missing ReplyTo for Absa {Operation} CorrelationId={CorrelationId}",
+                message.Operation,
+                message.CorrelationId);
+            return;
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var payload = message.Operation switch
         {
             BankOperation.AccountVerification => await ExecuteAsync<AccountVerificationRequest, AccountVerificationResponse>(
@@ -88,7 +108,11 @@ public sealed class AbsaRequestConsumer : BackgroundService
             Payload = payload
         };
 
-        await _messageBus.PublishAsync(QueueNames.OrchestratorResponses, response, cancellationToken);
+        await _messageBus.PublishAsync(
+            consumed.ReplyTo,
+            response,
+            new MessagePublishOptions { CorrelationId = message.CorrelationId },
+            cancellationToken);
     }
 
     private static async Task<string> ExecuteAsync<TRequest, TResponse>(

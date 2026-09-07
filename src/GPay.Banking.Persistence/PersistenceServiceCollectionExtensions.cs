@@ -58,7 +58,7 @@ public static class PersistenceServiceCollectionExtensions
         this IServiceProvider services,
         CancellationToken cancellationToken = default)
     {
-        using var scope = services.CreateScope();
+        await using var scope = services.CreateAsyncScope();
         var options = scope.ServiceProvider.GetRequiredService<IOptions<DatabaseOptions>>().Value;
         if (!options.EnsureCreated)
         {

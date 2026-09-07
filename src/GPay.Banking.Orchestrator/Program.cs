@@ -4,6 +4,7 @@ using GPay.Banking.Infrastructure.Logging;
 using GPay.Banking.Orchestrator.Consumers;
 using GPay.Banking.Orchestrator.Services;
 using GPay.Banking.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Reflection;
@@ -57,9 +58,20 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddGpayBankingInfrastructure(builder.Configuration);
 builder.Services.AddGpayBankingPersistence(builder.Configuration);
-builder.Services.AddScoped<IBankRoutingService, BankRoutingService>();
-builder.Services.AddHostedService<BankResponseConsumer>();
+builder.Services.AddSingleton<IBankRoutingService, BankRoutingService>();
+builder.Services.AddHostedService<DirectReplyConsumer>();
 builder.Services.AddHostedService<OrchestratorRequestConsumer>();
+
+var authAuthority = builder.Configuration["AuthServer:Authority"] ?? "https://localhost:44309";
+var authAudience = builder.Configuration["AuthServer:Audience"] ?? "GPay";
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = authAuthority;
+        options.Audience = authAudience;
+        options.RequireHttpsMetadata = builder.Configuration.GetValue("AuthServer:RequireHttpsMetadata", true);
+    });
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -68,6 +80,9 @@ await app.Services.EnsureGpayBankingDatabaseAsync();
 app.UseGpayGlobalExceptionHandler();
 app.UseMiddleware<HttpTrafficLoggingMiddleware>();
 app.UseSerilogRequestLogging();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {

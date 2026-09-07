@@ -10,7 +10,7 @@
 | `GPay.Banking.Infrastructure` | RabbitMQ, Serilog/ES, HTTP logging, health |
 | `GPay.Banking.Persistence` | EF Core DbContext + entities scaffolded from **GPayDev**, Unit of Work |
 | `GPay.Banking.Orchestrator` | HTTP + MQ ingress, routing, `/health`, `/api/queues` |
-| `GPay.Banking.Absa` | Absa CAPI adapter (stubs) + queue consumer |
+| `GPay.Banking.Absa` | Absa background worker: CAPI adapter + request queue consumer |
 | `web/gpay-banking-ops` | Angular IIS ops UI (health + queues) |
 
 ## Persistence (separate project)
@@ -68,9 +68,9 @@ GPay sends one AVS contract for every bank. The orchestrator routes by bank:
 - `POST /api/avs` with `{ "bank": "Absa", "accountNumber": "...", "branchCode": "...", ... }`
 - or `POST /api/Absa/account-verification` (bank in route)
 
-Flow: **GPay → Orchestrator → Absa queue → Absa AVS (CAPI)** → correlated response.
+Flow: **GPay → Orchestrator → Absa queue → Absa worker → Absa CAPI → direct reply → Orchestrator → GPay** (normalized `ApiResult<T>`).
 
-Absa settings (`AbsaCapi`): set `BaseUrl`, `TokenUrl`, `ClientId`, `ClientSecret`, optional mTLS cert.  
+Absa settings (`AbsaCapi`): set `BaseUrl` (UAT: `https://capi-uat.absa.co.za`), `Username`, `Password`, `CapiCode`, `ClientApiKey`, optional mTLS cert.  
 `UseSimulator: true` (default) returns a realistic simulated Absa response without calling the bank.
 
 Swagger: `http://localhost:5100/swagger`
@@ -96,5 +96,5 @@ dotnet test GPay.Banking.sln
 
 1. Create `GPay.Banking.{Bank}` host referencing Contracts + Infrastructure.
 2. Implement the capability interfaces (`IAccountVerificationService`, etc.).
-3. Consume `gpay.banking.{bank}.requests` and publish to `gpay.banking.orchestrator.responses`.
+3. Consume `gpay.banking.{bank}.requests`, call the bank API, and reply directly to the orchestrator via RabbitMQ `ReplyTo` (no response queue).
 4. Register the bank under `Banking:Banks` in Orchestrator config.

@@ -9,7 +9,7 @@ using GPay.Banking.Contracts.Persistence;
 namespace GPay.Banking.Absa.Services;
 
 /// <summary>
-/// Absa Account Verification Service (AVS) implementation per MIG – AVS API v1.
+/// Absa Account Verification Service (AVS) implementation per MIG – AVS API v00.5.
 /// </summary>
 public sealed class AbsaAccountVerificationService : IAccountVerificationService
 {
@@ -132,6 +132,20 @@ public sealed class AbsaAccountVerificationService : IAccountVerificationService
             {
                 Code = "GPAY_AVS_NAME_REQUIRED",
                 Message = "AccountHolderName or LastName (Absa ClientName) is required."
+            };
+        }
+
+        var hasInitials =
+            !string.IsNullOrWhiteSpace(request.Initials) ||
+            !string.IsNullOrWhiteSpace(request.AccountHolderName) ||
+            request.AdditionalData?.ContainsKey("ClientInitials") == true;
+
+        if (!hasInitials)
+        {
+            return new ApiError
+            {
+                Code = "GPAY_AVS_INITIALS_REQUIRED",
+                Message = "Initials or AccountHolderName (Absa ClientInitials) is required."
             };
         }
 

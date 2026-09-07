@@ -22,11 +22,22 @@ public class BankRoutingServiceTests
         var bus = new Mock<IMessageBus>();
         BankRequestMessage? published = null;
 
+        bus.SetupGet(b => b.IsDirectReplyReady).Returns(true);
+        bus.Setup(b => b.GetQueueStatsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((0u, 1u));
+
         bus.Setup(b => b.PublishAsync(
                 "gpay.banking.absa.requests",
                 It.IsAny<BankRequestMessage>(),
+                It.IsAny<MessagePublishOptions>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<string, BankRequestMessage, CancellationToken>((_, msg, _) => published = msg)
+            .Callback<string, BankRequestMessage, MessagePublishOptions?, CancellationToken>((_, msg, options, _) =>
+            {
+                published = msg;
+                options.Should().NotBeNull();
+                options!.ReplyTo.Should().Be(QueueNames.DirectReplyTo);
+                options.CorrelationId.Should().Be("corr-route");
+            })
             .Returns(Task.CompletedTask);
 
         var correlator = new InMemoryResponseCorrelator();

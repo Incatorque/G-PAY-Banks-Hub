@@ -2,6 +2,7 @@ using GPay.Banking.Contracts.Common;
 using GPay.Banking.Contracts.Dtos.AccountVerification;
 using GPay.Banking.Contracts.Enums;
 using GPay.Banking.Orchestrator.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GPay.Banking.Orchestrator.Controllers;
@@ -13,6 +14,7 @@ namespace GPay.Banking.Orchestrator.Controllers;
 [ApiController]
 [Route("api")]
 [Produces("application/json")]
+//[Authorize]
 public sealed class AvsController : ControllerBase
 {
     private readonly IBankRoutingService _routingService;

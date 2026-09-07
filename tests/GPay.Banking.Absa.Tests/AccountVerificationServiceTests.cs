@@ -133,6 +133,31 @@ public class AccountVerificationServiceTests
         absa.CorrelationId.Should().Be("corr-map");
     }
 
+    [Fact]
+    public void Mapper_MapsV005ValueListFields()
+    {
+        var mapper = new AbsaAvsMapper();
+        var response = mapper.ToGpayResponse(
+            new AbsaAvsResponse
+            {
+                Status = 5,
+                ValueList =
+                [
+                    new AbsaAvsValueItem { Key = "Account Open", Value = "Yes" },
+                    new AbsaAvsValueItem { Key = "Account Found", Value = "Yes" },
+                    new AbsaAvsValueItem { Key = "ID Matched", Value = "Yes" },
+                    new AbsaAvsValueItem { Key = "Name Matched", Value = "Yes" },
+                    new AbsaAvsValueItem { Key = "Initials Match", Value = "No" },
+                    new AbsaAvsValueItem { Key = "Account Type Matched", Value = "Yes" }
+                ]
+            },
+            "ref-1");
+
+        response.InitialsMatch.Should().Be("N");
+        response.AccountTypeMatch.Should().Be("Y");
+        response.IsVerified.Should().BeFalse();
+    }
+
     private static AbsaAccountVerificationService CreateSut(IAbsaCapiClient capi) =>
         new(
             capi,

@@ -80,6 +80,37 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         !string.IsNullOrWhiteSpace(value) &&
         !value.StartsWith("SET_", StringComparison.OrdinalIgnoreCase);
 
+    private string DescribeMissingConfiguration()
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(_options.BaseUrl))
+        {
+            missing.Add("BaseUrl");
+        }
+
+        if (!IsLiveCredential(_options.Username))
+        {
+            missing.Add("Username");
+        }
+
+        if (!IsLiveCredential(_options.Password))
+        {
+            missing.Add("Password");
+        }
+
+        if (!IsLiveCredential(_options.CapiCode))
+        {
+            missing.Add("CapiCode");
+        }
+
+        if (!IsLiveCredential(_options.ClientApiKey))
+        {
+            missing.Add("ClientApiKey");
+        }
+
+        return string.Join(", ", missing);
+    }
+
     /// <inheritdoc />
     public bool UseSimulator => _options.UseSimulator;
 
@@ -97,7 +128,8 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         if (!IsConfigured)
         {
             throw new InvalidOperationException(
-                "Absa CAPI is not configured for live AVS. Set Username, Password, CapiCode, ClientApiKey and UseSimulator=false.");
+                $"Absa CAPI is not configured for live AVS. Missing or placeholder: {DescribeMissingConfiguration()}. " +
+                "Set values in appsettings.json or appsettings.Local.json (Local overrides json). Placeholders starting with SET_ are ignored.");
         }
 
         request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
@@ -305,6 +337,7 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
     {
         var hasIdentity = !string.IsNullOrWhiteSpace(request.ClientIdNumber);
         var hasName = !string.IsNullOrWhiteSpace(request.ClientName);
+        var hasInitials = !string.IsNullOrWhiteSpace(request.ClientInitials);
 
         return new AbsaAvsResponse
         {
@@ -318,6 +351,8 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
                 new AbsaAvsValueItem { Key = "Account Open Longer Than 3 Months", Value = "Yes" },
                 new AbsaAvsValueItem { Key = "ID Matched", Value = hasIdentity ? "Yes" : "Unverified" },
                 new AbsaAvsValueItem { Key = "Name Matched", Value = hasName ? "Yes" : "Unverified" },
+                new AbsaAvsValueItem { Key = "Initials Match", Value = hasInitials ? "Yes" : "Unverified" },
+                new AbsaAvsValueItem { Key = "Account Type Matched", Value = "Yes" },
                 new AbsaAvsValueItem { Key = "Account Allows Credit", Value = "Yes" },
                 new AbsaAvsValueItem { Key = "Account Accepts Credit", Value = "Yes" },
                 new AbsaAvsValueItem { Key = "Account Allows Debit", Value = "Yes" },

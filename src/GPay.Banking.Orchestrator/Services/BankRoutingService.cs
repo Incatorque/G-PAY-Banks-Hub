@@ -64,6 +64,36 @@ public sealed class BankRoutingService : IBankRoutingService
         var registration = _bankingOptions.Banks.FirstOrDefault(b => b.BankCode == bankCode)
             ?? throw new InvalidOperationException($"Bank '{bankCode}' is not registered.");
 
+        if (!_messageBus.IsDirectReplyReady)
+        {
+            _logger.LogWarning("Direct reply consumer not ready for CorrelationId={CorrelationId}", correlationId);
+            return ApiResult<TResponse>.Fail(
+                new ApiError
+                {
+                    Code = "GPAY_MQ_NOT_READY",
+                    Message = "Bank routing is not ready. Ensure RabbitMQ is running and the orchestrator direct-reply consumer has started."
+                },
+                correlationId);
+        }
+
+        var (_, consumerCount) = await _messageBus.GetQueueStatsAsync(registration.RequestQueue, cancellationToken);
+        if (consumerCount == 0)
+        {
+            _logger.LogWarning(
+                "No consumers on {Queue} for {Bank} CorrelationId={CorrelationId}",
+                registration.RequestQueue,
+                bankCode,
+                correlationId);
+
+            return ApiResult<TResponse>.Fail(
+                new ApiError
+                {
+                    Code = "GPAY_BANK_UNAVAILABLE",
+                    Message = $"The {registration.Name} worker is not running. Start GPay.Banking.{registration.Name} and ensure RabbitMQ is available."
+                },
+                correlationId);
+        }
+
         var tcs = _correlator.Register(correlationId, DefaultTimeout);
 
         var message = new BankRequestMessage
@@ -80,7 +110,15 @@ public sealed class BankRoutingService : IBankRoutingService
             bankCode,
             correlationId);
 
-        await _messageBus.PublishAsync(registration.RequestQueue, message, cancellationToken);
+        await _messageBus.PublishAsync(
+            registration.RequestQueue,
+            message,
+            new MessagePublishOptions
+            {
+                ReplyTo = QueueNames.DirectReplyTo,
+                CorrelationId = correlationId
+            },
+            cancellationToken);
 
         try
         {
