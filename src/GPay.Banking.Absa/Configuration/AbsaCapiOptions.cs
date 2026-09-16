@@ -38,6 +38,61 @@ public sealed class AbsaCapiOptions
     public string ValidateBankReferencePath { get; set; } = "/api/Account/ValidateBankReference";
 
     /// <summary>
+    /// Payment initiate path (PayShap / RTC).
+    /// </summary>
+    public string PaymentInitiatePath { get; set; } = "/api/payment/initiate";
+
+    /// <summary>
+    /// Payment status path.
+    /// </summary>
+    public string PaymentStatusPath { get; set; } = "/api/payment/Status";
+
+    /// <summary>
+    /// Payment callback register path.
+    /// </summary>
+    public string PaymentCallbackRegisterPath { get; set; } = "/api/PaymentCallback/Register";
+
+    /// <summary>
+    /// Default Authorisation.SubmittingEntityName.
+    /// </summary>
+    public string DefaultSubmittingEntityName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default Authorisation.SubsidiaryEntityName.
+    /// </summary>
+    public string DefaultSubsidiaryEntityName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default Source.ShortName.
+    /// </summary>
+    public string DefaultSourceShortName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default Source.AccountNumber when the request omits FromAccountNumber.
+    /// </summary>
+    public string DefaultSourceAccountNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default Source.AccountType (default 10).
+    /// </summary>
+    public int DefaultSourceAccountType { get; set; } = 10;
+
+    /// <summary>
+    /// Default payment callback URI registered with Absa / sent on initiate.
+    /// </summary>
+    public string? PaymentCallbackUri { get; set; }
+
+    /// <summary>
+    /// Default payment callback token.
+    /// </summary>
+    public string? PaymentCallbackToken { get; set; }
+
+    /// <summary>
+    /// Default payment callback support email.
+    /// </summary>
+    public string? PaymentCallbackSupportEmail { get; set; }
+
+    /// <summary>
     /// CAPI channel username (onboarding).
     /// </summary>
     public string Username { get; set; } = string.Empty;
@@ -88,7 +143,7 @@ public sealed class AbsaCapiOptions
     public int TimeoutSeconds { get; set; } = 60;
 
     /// <summary>
-    /// When true, AVS uses a simulated MIG-shaped response (no outbound CAPI call).
+    /// When true, AVS and payment use a simulated MIG-shaped response (no outbound CAPI call).
     /// </summary>
     public bool UseSimulator { get; set; }
 

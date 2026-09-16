@@ -1,6 +1,8 @@
+using GPay.Banking.Contracts.Configuration;
 using GPay.Banking.Infrastructure;
 using GPay.Banking.Infrastructure.Http;
 using GPay.Banking.Infrastructure.Logging;
+using GPay.Banking.Orchestrator.Configuration;
 using GPay.Banking.Orchestrator.Consumers;
 using GPay.Banking.Orchestrator.Services;
 using GPay.Banking.Persistence;
@@ -56,9 +58,12 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.Configure<AvsBatchOptions>(builder.Configuration.GetSection(AvsBatchOptions.SectionName));
+builder.Services.Configure<AbsaCallbackOptions>(builder.Configuration.GetSection(AbsaCallbackOptions.SectionName));
 builder.Services.AddGpayBankingInfrastructure(builder.Configuration);
 builder.Services.AddGpayBankingPersistence(builder.Configuration);
 builder.Services.AddSingleton<IBankRoutingService, BankRoutingService>();
+builder.Services.AddScoped<IAvsBatchService, AvsBatchService>();
 builder.Services.AddHostedService<DirectReplyConsumer>();
 builder.Services.AddHostedService<OrchestratorRequestConsumer>();
 

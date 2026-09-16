@@ -22,4 +22,10 @@ public static class QueueNames
     /// </summary>
     public static string BankRequests(BankCode bankCode) =>
         $"gpay.banking.{bankCode.ToString().ToLowerInvariant()}.requests";
+
+    /// <summary>
+    /// Builds the AVS batch segment queue name for a bank (messages of ≤ 5 000 items).
+    /// </summary>
+    public static string BankAvsBatchSegments(BankCode bankCode) =>
+        $"gpay.banking.{bankCode.ToString().ToLowerInvariant()}.avs.batch.segments";
 }

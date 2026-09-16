@@ -1,4 +1,5 @@
 using GPay.Banking.Contracts.Persistence;
+using GPay.Banking.Persistence.Avs;
 using GPay.Banking.Persistence.Configuration;
 using GPay.Banking.Persistence.Data;
 using GPay.Banking.Persistence.Repositories;
@@ -46,6 +47,7 @@ public static class PersistenceServiceCollectionExtensions
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+        services.AddScoped<IAvsBatchStore, AvsBatchStore>();
 
         return services;
     }

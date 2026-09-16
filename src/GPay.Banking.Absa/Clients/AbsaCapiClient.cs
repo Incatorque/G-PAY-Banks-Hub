@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using GPay.Banking.Absa.Configuration;
 using GPay.Banking.Absa.Models.Avs;
+using GPay.Banking.Absa.Models.Payment;
 using Microsoft.Extensions.Options;
 
 namespace GPay.Banking.Absa.Clients;
@@ -18,7 +19,7 @@ public interface IAbsaCapiClient
     bool IsConfigured { get; }
 
     /// <summary>
-    /// Indicates whether the local AVS simulator should be used.
+    /// Indicates whether the local AVS/payment simulator should be used.
     /// </summary>
     bool UseSimulator { get; }
 
@@ -26,6 +27,27 @@ public interface IAbsaCapiClient
     /// Calls Absa Account Verification (ValidateBankDetails, and ValidateBankReference when pending).
     /// </summary>
     Task<AbsaAvsResponse> VerifyAccountAsync(AbsaAvsRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Initiates an Absa instant payment (PayShap / RTC).
+    /// </summary>
+    Task<AbsaPaymentInitiateResponse> InitiatePaymentAsync(
+        AbsaPaymentInitiateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries Absa payment status by correlation references.
+    /// </summary>
+    Task<AbsaPaymentStatusResponse> GetPaymentStatusAsync(
+        AbsaPaymentStatusRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Registers a payment callback URI with Absa.
+    /// </summary>
+    Task<AbsaPaymentCallbackRegisterResponse> RegisterPaymentCallbackAsync(
+        AbsaPaymentCallbackRegisterRequest request,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Sends a raw JSON request to Absa CAPI with security headers.
@@ -164,6 +186,93 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         }
 
         return detailsResponse;
+    }
+
+    /// <inheritdoc />
+    public async Task<AbsaPaymentInitiateResponse> InitiatePaymentAsync(
+        AbsaPaymentInitiateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation(
+                "Absa payment initiate simulator used TxRef={TxRef}",
+                request.Economics.TransactionRef);
+            return SimulatePaymentInitiate(request);
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for live payment. Missing or placeholder: {DescribeMissingConfiguration()}. " +
+                "Set values in appsettings.json or appsettings.Local.json (Local overrides json). Placeholders starting with SET_ are ignored.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+
+        _logger.LogInformation(
+            "Absa PaymentInitiate Amount={Amount} Currency={Currency} Rail={Rail} TxRef={TxRef}",
+            request.Economics.Amount,
+            request.Economics.CurrencyCode,
+            request.Economics.Indicator,
+            request.Economics.TransactionRef);
+
+        var body = await SendAsync(_options.PaymentInitiatePath, HttpMethod.Post, json, cancellationToken);
+        return DeserializePaymentInitiate(body);
+    }
+
+    /// <inheritdoc />
+    public async Task<AbsaPaymentStatusResponse> GetPaymentStatusAsync(
+        AbsaPaymentStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation(
+                "Absa payment status simulator used Correlations={Count}",
+                request.Correlations.Count);
+            return SimulatePaymentStatus(request);
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for live payment status. Missing or placeholder: {DescribeMissingConfiguration()}.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+
+        _logger.LogInformation(
+            "Absa PaymentStatus Correlations={Count}",
+            request.Correlations.Count);
+
+        var body = await SendAsync(_options.PaymentStatusPath, HttpMethod.Post, json, cancellationToken);
+        return DeserializePaymentStatus(body);
+    }
+
+    /// <inheritdoc />
+    public async Task<AbsaPaymentCallbackRegisterResponse> RegisterPaymentCallbackAsync(
+        AbsaPaymentCallbackRegisterRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation("Absa payment callback register simulator used Uri={Uri}", request.Uri);
+            return new AbsaPaymentCallbackRegisterResponse { Status = 2, ErrorList = [] };
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for payment callback register. Missing or placeholder: {DescribeMissingConfiguration()}.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        var body = await SendAsync(_options.PaymentCallbackRegisterPath, HttpMethod.Post, json, cancellationToken);
+        return DeserializePaymentCallbackRegister(body);
     }
 
     private async Task<AbsaAvsResponse> PollBankReferenceAsync(
@@ -372,6 +481,146 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
             ResponseUtcTime = DateTime.UtcNow.ToString("O"),
             UserFriendlyDisplayList = []
         };
+    }
+
+    private static AbsaPaymentInitiateResponse SimulatePaymentInitiate(AbsaPaymentInitiateRequest request)
+    {
+        var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        return new AbsaPaymentInitiateResponse
+        {
+            Status = 2,
+            Correlations =
+            [
+                new AbsaPaymentCorrelation { Type = 1, Value = request.Source.StatementRef },
+                new AbsaPaymentCorrelation { Type = 2, Value = request.Target.StatementRef },
+                new AbsaPaymentCorrelation { Type = 3, Value = $"SIM-API-{stamp}" },
+                new AbsaPaymentCorrelation { Type = 4, Value = request.Economics.TransactionRef }
+            ],
+            ErrorList = []
+        };
+    }
+
+    private static AbsaPaymentStatusResponse SimulatePaymentStatus(AbsaPaymentStatusRequest request)
+    {
+        var items = request.Correlations.Select(corr => new AbsaPaymentStatusListItem
+        {
+            Status = 3,
+            Correlations =
+            [
+                new AbsaPaymentCorrelation { Type = 3, Value = corr.StartsWith("SIM-API-", StringComparison.Ordinal) ? corr : $"SIM-API-{corr}" },
+                new AbsaPaymentCorrelation { Type = 4, Value = corr }
+            ],
+            ErrorList = []
+        }).ToList();
+
+        return new AbsaPaymentStatusResponse
+        {
+            StatusList = items,
+            ErrorList = []
+        };
+    }
+
+    private static AbsaPaymentInitiateResponse DeserializePaymentInitiate(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaPaymentInitiateResponse>(body, JsonOptions)
+                   ?? new AbsaPaymentInitiateResponse
+                   {
+                       Status = 0,
+                       ErrorList =
+                       [
+                           new AbsaPaymentErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa payment initiate response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaPaymentInitiateResponse
+            {
+                Status = 0,
+                ErrorList =
+                [
+                    new AbsaPaymentErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa payment initiate response."
+                    }
+                ]
+            };
+        }
+    }
+
+    private static AbsaPaymentStatusResponse DeserializePaymentStatus(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaPaymentStatusResponse>(body, JsonOptions)
+                   ?? new AbsaPaymentStatusResponse
+                   {
+                       ErrorList =
+                       [
+                           new AbsaPaymentErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa payment status response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaPaymentStatusResponse
+            {
+                ErrorList =
+                [
+                    new AbsaPaymentErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa payment status response."
+                    }
+                ]
+            };
+        }
+    }
+
+    private static AbsaPaymentCallbackRegisterResponse DeserializePaymentCallbackRegister(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaPaymentCallbackRegisterResponse>(body, JsonOptions)
+                   ?? new AbsaPaymentCallbackRegisterResponse
+                   {
+                       Status = 0,
+                       ErrorList =
+                       [
+                           new AbsaPaymentErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa payment callback register response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaPaymentCallbackRegisterResponse
+            {
+                Status = 0,
+                ErrorList =
+                [
+                    new AbsaPaymentErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa payment callback register response."
+                    }
+                ]
+            };
+        }
     }
 }
 

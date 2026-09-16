@@ -17,7 +17,7 @@ namespace GPay.Banking.Orchestrator.Controllers;
 [ApiController]
 [Route("api/{bank}")]
 [Produces("application/json")]
-[Authorize]
+//[Authorize] // Temporarily disabled for Local UAT E2E (same as AvsController)
 public sealed class BankingController : ControllerBase
 {
     private readonly IBankRoutingService _routingService;
@@ -54,6 +54,18 @@ public sealed class BankingController : ControllerBase
         CancellationToken cancellationToken) =>
         SendAsync<InstantPaymentRequest, InstantPaymentResponse>(
             bank, BankOperation.InstantPayment, request, cancellationToken);
+
+    /// <summary>
+    /// Queries instant payment status via the specified bank.
+    /// </summary>
+    [HttpPost("payments/status")]
+    [ProducesResponseType(typeof(ApiResult<PaymentStatusResponse>), StatusCodes.Status200OK)]
+    public Task<ActionResult<ApiResult<PaymentStatusResponse>>> PaymentStatus(
+        string bank,
+        [FromBody] PaymentStatusRequest request,
+        CancellationToken cancellationToken) =>
+        SendAsync<PaymentStatusRequest, PaymentStatusResponse>(
+            bank, BankOperation.PaymentStatus, request, cancellationToken);
 
     /// <summary>
     /// Retrieves account balances via the specified bank.

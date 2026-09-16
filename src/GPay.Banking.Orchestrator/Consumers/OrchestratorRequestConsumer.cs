@@ -80,6 +80,9 @@ public sealed class OrchestratorRequestConsumer : BackgroundService
             case BankOperation.InstantPayment:
                 await RouteAsync<InstantPaymentRequest, InstantPaymentResponse>(message, cancellationToken);
                 break;
+            case BankOperation.PaymentStatus:
+                await RouteAsync<PaymentStatusRequest, PaymentStatusResponse>(message, cancellationToken);
+                break;
             case BankOperation.Balance:
                 await RouteAsync<BalanceRequest, BalanceResponse>(message, cancellationToken);
                 break;

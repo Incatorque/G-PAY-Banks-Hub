@@ -90,6 +90,8 @@ public sealed class AbsaRequestConsumer : BackgroundService
                 scope, message, (sp, req, id, ct) => sp.GetRequiredService<IAccountVerificationService>().VerifyAsync(req, id, ct), cancellationToken),
             BankOperation.InstantPayment => await ExecuteAsync<InstantPaymentRequest, InstantPaymentResponse>(
                 scope, message, (sp, req, id, ct) => sp.GetRequiredService<IInstantPaymentService>().PayAsync(req, id, ct), cancellationToken),
+            BankOperation.PaymentStatus => await ExecuteAsync<PaymentStatusRequest, PaymentStatusResponse>(
+                scope, message, (sp, req, id, ct) => sp.GetRequiredService<IInstantPaymentService>().GetStatusAsync(req, id, ct), cancellationToken),
             BankOperation.Balance => await ExecuteAsync<BalanceRequest, BalanceResponse>(
                 scope, message, (sp, req, id, ct) => sp.GetRequiredService<IBalanceService>().GetBalanceAsync(req, id, ct), cancellationToken),
             BankOperation.Statement => await ExecuteAsync<StatementRequest, StatementResponse>(

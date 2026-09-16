@@ -15,4 +15,12 @@ public interface IInstantPaymentService
         InstantPaymentRequest request,
         string correlationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries payment status by transaction or API reference.
+    /// </summary>
+    Task<ApiResult<PaymentStatusResponse>> GetStatusAsync(
+        PaymentStatusRequest request,
+        string correlationId,
+        CancellationToken cancellationToken = default);
 }

@@ -3,6 +3,7 @@ using GPay.Banking.Absa.Configuration;
 using GPay.Banking.Absa.Consumers;
 using GPay.Banking.Absa.Mapping;
 using GPay.Banking.Absa.Services;
+using GPay.Banking.Contracts.Configuration;
 using GPay.Banking.Contracts.Interfaces;
 using GPay.Banking.Infrastructure;
 using GPay.Banking.Infrastructure.Http;
@@ -23,12 +24,14 @@ if (builder.Environment.IsDevelopment())
 
 builder.Host.UseGpaySerilog("GPay.Banking.Absa");
 
+builder.Services.Configure<AvsBatchOptions>(builder.Configuration.GetSection(AvsBatchOptions.SectionName));
 builder.Services.AddGpayBankingInfrastructure(builder.Configuration);
 builder.Services.AddGpayBankingPersistence(builder.Configuration);
 
 builder.Services.Configure<AbsaCapiOptions>(builder.Configuration.GetSection(AbsaCapiOptions.SectionName));
 builder.Services.AddSingleton<IAbsaRequestSigner, AbsaRequestSigner>();
 builder.Services.AddSingleton<IAbsaAvsMapper, AbsaAvsMapper>();
+builder.Services.AddSingleton<IAbsaPaymentMapper, AbsaPaymentMapper>();
 builder.Services.AddSingleton<IBankErrorMapper, AbsaErrorMapper>();
 
 builder.Services.AddHttpClient<IAbsaSessionProvider, AbsaSessionProvider>((sp, client) =>
@@ -60,6 +63,7 @@ builder.Services.AddScoped<IStatementService, AbsaStatementService>();
 builder.Services.AddScoped<ITransactionHistoryService, AbsaStatementService>();
 builder.Services.AddScoped<INotificationService, AbsaNotificationService>();
 builder.Services.AddHostedService<AbsaRequestConsumer>();
+builder.Services.AddHostedService<AvsBatchSegmentConsumer>();
 
 var app = builder.Build();
 
@@ -76,7 +80,7 @@ app.MapGet("/health", (IOptions<AbsaCapiOptions> options) =>
     {
         service = "Absa",
         status = "Healthy",
-        capability = "AVS",
+        capability = "AVS,Payments",
         mode = o.UseSimulator ? "simulator" : "live",
         baseUrl = o.BaseUrl,
         configured = IsLiveCredential(o.Username) &&
@@ -84,6 +88,8 @@ app.MapGet("/health", (IOptions<AbsaCapiOptions> options) =>
                      IsLiveCredential(o.CapiCode) &&
                      IsLiveCredential(o.ClientApiKey),
         validateBankDetailsPath = o.ValidateBankDetailsPath,
+        paymentInitiatePath = o.PaymentInitiatePath,
+        paymentStatusPath = o.PaymentStatusPath,
         checkedAtUtc = DateTimeOffset.UtcNow
     });
 });

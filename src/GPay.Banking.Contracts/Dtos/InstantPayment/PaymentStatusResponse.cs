@@ -1,9 +1,9 @@
 namespace GPay.Banking.Contracts.Dtos.InstantPayment;
 
 /// <summary>
-/// GPay instant payment (PayShap / RTC) response.
+/// Instant payment status query response (same shape as <see cref="InstantPaymentResponse"/>).
 /// </summary>
-public sealed class InstantPaymentResponse
+public sealed class PaymentStatusResponse
 {
     /// <summary>
     /// Bank or scheme transaction identifier (legacy alias of <see cref="TransactionReference"/>).
@@ -11,17 +11,17 @@ public sealed class InstantPaymentResponse
     public string? TransactionId { get; init; }
 
     /// <summary>
-    /// Payment status (e.g. Submitted, Completed, Failed). Prefer <see cref="RawStatusLabel"/>.
+    /// Payment status (e.g. Submitted, Completed, Failed).
     /// </summary>
     public required string Status { get; init; }
 
     /// <summary>
-    /// Echo of the client payment reference.
+    /// Echo of the client payment reference when known.
     /// </summary>
     public string? Reference { get; init; }
 
     /// <summary>
-    /// Amount processed.
+    /// Amount processed when known.
     /// </summary>
     public decimal? Amount { get; init; }
 
@@ -41,7 +41,7 @@ public sealed class InstantPaymentResponse
     public string? TransactionReference { get; init; }
 
     /// <summary>
-    /// Raw Absa Status code from the payment response.
+    /// Raw Absa Status code from the status response.
     /// </summary>
     public int? BankStatusCode { get; init; }
 

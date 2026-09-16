@@ -18,5 +18,8 @@ public enum BankOperation
     Statement = 4,
 
     /// <summary>Bank notification subscription or retrieval.</summary>
-    Notification = 5
+    Notification = 5,
+
+    /// <summary>Instant payment status enquiry.</summary>
+    PaymentStatus = 6
 }
