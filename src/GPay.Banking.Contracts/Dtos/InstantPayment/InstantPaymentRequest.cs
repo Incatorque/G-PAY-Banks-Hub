@@ -86,9 +86,9 @@ public sealed class InstantPaymentRequest
     public string? ToStatementRef { get; init; }
 
     /// <summary>
-    /// Target trust-account flag: Y or N (default N).
+    /// Target trust-account flag: Y or N (default N when omitted).
     /// </summary>
-    public string IsTrustAccount { get; init; } = "N";
+    public string? IsTrustAccount { get; init; }
 
     /// <summary>
     /// Payment date yyyy-MM-dd (defaults to today in UTC+2 South Africa).
