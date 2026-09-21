@@ -1,0 +1,579 @@
+using GPay.Banking.Services.Absa;
+using GPay.Banking;
+using System.Text;
+using System.Text.Json;
+using GPay.Banking.Services;
+using GPay.Banking.Services.Absa.Api.Models.Avs;
+using GPay.Banking.Services.Absa.Api.Models.Payment;
+using Microsoft.Extensions.Options;
+
+namespace GPay.Banking.Services.Absa.Api.Clients;
+
+/// <summary>
+/// HTTP implementation of Absa CAPI AVS per MIG – AVS API v1.
+/// </summary>
+public sealed class AbsaCapiClient : IAbsaCapiClient
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = null,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private readonly HttpClient _httpClient;
+    private readonly IAbsaSessionProvider _sessionProvider;
+    private readonly IAbsaRequestSigner _requestSigner;
+    private readonly AbsaCapiOptions _options;
+    private readonly ILogger<AbsaCapiClient> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AbsaCapiClient"/> class.
+    /// </summary>
+    public AbsaCapiClient(
+        HttpClient httpClient,
+        IAbsaSessionProvider sessionProvider,
+        IAbsaRequestSigner requestSigner,
+        IOptions<AbsaCapiOptions> options,
+        ILogger<AbsaCapiClient> logger)
+    {
+        _httpClient = httpClient;
+        _sessionProvider = sessionProvider;
+        _requestSigner = requestSigner;
+        _options = options.Value;
+        _logger = logger;
+    }
+
+    /// <inheritdoc />
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(_options.BaseUrl) &&
+        IsLiveCredential(_options.Username) &&
+        IsLiveCredential(_options.Password) &&
+        IsLiveCredential(_options.CapiCode) &&
+        IsLiveCredential(_options.ClientApiKey);
+
+    private static bool IsLiveCredential(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        !value.StartsWith("SET_", StringComparison.OrdinalIgnoreCase);
+
+    private string DescribeMissingConfiguration()
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(_options.BaseUrl))
+        {
+            missing.Add("BaseUrl");
+        }
+
+        if (!IsLiveCredential(_options.Username))
+        {
+            missing.Add("Username");
+        }
+
+        if (!IsLiveCredential(_options.Password))
+        {
+            missing.Add("Password");
+        }
+
+        if (!IsLiveCredential(_options.CapiCode))
+        {
+            missing.Add("CapiCode");
+        }
+
+        if (!IsLiveCredential(_options.ClientApiKey))
+        {
+            missing.Add("ClientApiKey");
+        }
+
+        return string.Join(", ", missing);
+    }
+
+    /// <inheritdoc />
+    public bool UseSimulator => _options.UseSimulator;
+
+    /// <inheritdoc />
+    public async Task<AbsaAvsResponse> VerifyAccountAsync(
+        AbsaAvsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation("Absa AVS simulator used for CorrelationId={CorrelationId}", request.CorrelationId);
+            return Simulate(request);
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for live AVS. Missing or placeholder: {DescribeMissingConfiguration()}. " +
+                "Set values in appsettings.json or appsettings.Local.json (Local overrides json). Placeholders starting with SET_ are ignored.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var detailsJson = JsonSerializer.Serialize(request, JsonOptions);
+
+        _logger.LogInformation(
+            "Absa ValidateBankDetails BankCode={BankCode} Account={Account} Branch={Branch} CorrelationId={CorrelationId}",
+            request.BankCode,
+            request.AccountNumber,
+            request.BranchCode,
+            request.CorrelationId);
+
+        var detailsBody = await SendAsync(_options.ValidateBankDetailsPath, HttpMethod.Post, detailsJson, cancellationToken);
+        var detailsResponse = Deserialize(detailsBody, request.CorrelationId);
+
+        if (detailsResponse.HasErrors)
+        {
+            return detailsResponse;
+        }
+
+        // Absa (on-us): synchronous — ValueList returned on first call.
+        if (detailsResponse.IsSuccessStatus && detailsResponse.ValueList is { Count: > 0 })
+        {
+            return detailsResponse;
+        }
+
+        // Non-Absa: pending → poll ValidateBankReference with ReferenceNumber.
+        if (detailsResponse.IsPendingStatus ||
+            (IsNonAbsaBank(request.BankCode) && !string.IsNullOrWhiteSpace(detailsResponse.ReferenceNumber)))
+        {
+            return await PollBankReferenceAsync(detailsResponse, request, cancellationToken);
+        }
+
+        return detailsResponse;
+    }
+
+    /// <inheritdoc />
+    public async Task<AbsaPaymentInitiateResponse> InitiatePaymentAsync(
+        AbsaPaymentInitiateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation(
+                "Absa payment initiate simulator used TxRef={TxRef}",
+                request.Economics.TransactionRef);
+            return SimulatePaymentInitiate(request);
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for live payment. Missing or placeholder: {DescribeMissingConfiguration()}. " +
+                "Set values in appsettings.json or appsettings.Local.json (Local overrides json). Placeholders starting with SET_ are ignored.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+
+        _logger.LogInformation(
+            "Absa PaymentInitiate Amount={Amount} Currency={Currency} Rail={Rail} TxRef={TxRef}",
+            request.Economics.Amount,
+            request.Economics.CurrencyCode,
+            request.Economics.Indicator,
+            request.Economics.TransactionRef);
+
+        var body = await SendAsync(_options.PaymentInitiatePath, HttpMethod.Post, json, cancellationToken);
+        return DeserializePaymentInitiate(body);
+    }
+
+    /// <inheritdoc />
+    public async Task<AbsaPaymentStatusResponse> GetPaymentStatusAsync(
+        AbsaPaymentStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation(
+                "Absa payment status simulator used Correlations={Count}",
+                request.Correlations.Count);
+            return SimulatePaymentStatus(request);
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for live payment status. Missing or placeholder: {DescribeMissingConfiguration()}.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+
+        _logger.LogInformation(
+            "Absa PaymentStatus Correlations={Count}",
+            request.Correlations.Count);
+
+        var body = await SendAsync(_options.PaymentStatusPath, HttpMethod.Post, json, cancellationToken);
+        return DeserializePaymentStatus(body);
+    }
+
+    /// <inheritdoc />
+    public async Task<AbsaPaymentCallbackRegisterResponse> RegisterPaymentCallbackAsync(
+        AbsaPaymentCallbackRegisterRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (UseSimulator)
+        {
+            _logger.LogInformation("Absa payment callback register simulator used Uri={Uri}", request.Uri);
+            return new AbsaPaymentCallbackRegisterResponse { Status = 2, ErrorList = [] };
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException(
+                $"Absa CAPI is not configured for payment callback register. Missing or placeholder: {DescribeMissingConfiguration()}.");
+        }
+
+        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        var body = await SendAsync(_options.PaymentCallbackRegisterPath, HttpMethod.Post, json, cancellationToken);
+        return DeserializePaymentCallbackRegister(body);
+    }
+
+    private async Task<AbsaAvsResponse> PollBankReferenceAsync(
+        AbsaAvsResponse detailsResponse,
+        AbsaAvsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(detailsResponse.ReferenceNumber))
+        {
+            return new AbsaAvsResponse
+            {
+                Status = "033",
+                CorrelationId = request.CorrelationId,
+                ErrorList =
+                [
+                    new AbsaAvsErrorItem
+                    {
+                        Code = "MISSING_REFERENCE",
+                        Description = "ValidateBankDetails did not return ReferenceNumber for non-Absa enquiry."
+                    }
+                ]
+            };
+        }
+
+        var maxAttempts = Math.Max(1, _options.ReferencePollMaxAttempts);
+        var delay = Math.Max(200, _options.ReferencePollIntervalMs);
+        AbsaAvsResponse? last = detailsResponse;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var referenceRequest = new AbsaValidateBankReferenceRequest
+            {
+                ReferenceNumber = detailsResponse.ReferenceNumber!,
+                CapiCode = request.CapiCode,
+                Session = session
+            };
+            var json = JsonSerializer.Serialize(referenceRequest, JsonOptions);
+
+            _logger.LogInformation(
+                "Absa ValidateBankReference attempt={Attempt}/{Max} Ref={Ref} CorrelationId={CorrelationId}",
+                attempt,
+                maxAttempts,
+                detailsResponse.ReferenceNumber,
+                request.CorrelationId);
+
+            var body = await SendAsync(_options.ValidateBankReferencePath, HttpMethod.Post, json, cancellationToken);
+            last = Deserialize(body, request.CorrelationId);
+
+            if (last.HasErrors)
+            {
+                return last;
+            }
+
+            if (last.IsSuccessStatus && last.ValueList is { Count: > 0 })
+            {
+                return last;
+            }
+
+            if (last.StatusCode is "033" or "099")
+            {
+                return last;
+            }
+
+            if (attempt < maxAttempts)
+            {
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+
+        return last ?? detailsResponse;
+    }
+
+    /// <inheritdoc />
+    public async Task<string> SendAsync(
+        string relativePath,
+        HttpMethod method,
+        string? jsonBody,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(_options.BaseUrl))
+        {
+            throw new InvalidOperationException("AbsaCapi:BaseUrl is not configured.");
+        }
+
+        var uri = relativePath.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? new Uri(relativePath)
+            : new Uri(new Uri(_options.BaseUrl.TrimEnd('/') + "/"), relativePath.TrimStart('/'));
+
+        using var request = new HttpRequestMessage(method, uri);
+        if (jsonBody is not null)
+        {
+            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        }
+
+        _requestSigner.ApplyHeaders(request, jsonBody);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Absa CAPI {Method} {Uri} => {Status}",
+            method,
+            uri,
+            (int)response.StatusCode);
+
+        if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(responseBody))
+        {
+            throw new HttpRequestException($"Absa CAPI call failed with status {(int)response.StatusCode}.");
+        }
+
+        return responseBody;
+    }
+
+    private static AbsaAvsResponse Deserialize(string body, string? correlationId)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaAvsResponse>(body, JsonOptions)
+                   ?? new AbsaAvsResponse
+                   {
+                       Status = "033",
+                       CorrelationId = correlationId,
+                       ErrorList =
+                       [
+                           new AbsaAvsErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa AVS response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaAvsResponse
+            {
+                Status = "033",
+                CorrelationId = correlationId,
+                ErrorList =
+                [
+                    new AbsaAvsErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa AVS response."
+                    }
+                ]
+            };
+        }
+    }
+
+    /// <summary>
+    /// Absa bank codes per MIG: 000016 (or sample shorthand "16").
+    /// </summary>
+    internal static bool IsAbsaBank(string? bankCode)
+    {
+        if (string.IsNullOrWhiteSpace(bankCode))
+        {
+            return false;
+        }
+
+        var normalized = bankCode.Trim().TrimStart('0');
+        return normalized == "16";
+    }
+
+    internal static bool IsNonAbsaBank(string? bankCode) => !IsAbsaBank(bankCode);
+
+    private static AbsaAvsResponse Simulate(AbsaAvsRequest request)
+    {
+        var hasIdentity = !string.IsNullOrWhiteSpace(request.ClientIdNumber);
+        var hasName = !string.IsNullOrWhiteSpace(request.ClientName);
+        var hasInitials = !string.IsNullOrWhiteSpace(request.ClientInitials);
+
+        return new AbsaAvsResponse
+        {
+            Status = 5,
+            ReferenceNumber = "SIM" + DateTime.UtcNow.ToString("HHmmss"),
+            CorrelationId = request.CorrelationId,
+            ValueList =
+            [
+                new AbsaAvsValueItem { Key = "Account Open", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "Account Found", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "Account Open Longer Than 3 Months", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "ID Matched", Value = hasIdentity ? "Yes" : "Unverified" },
+                new AbsaAvsValueItem { Key = "Name Matched", Value = hasName ? "Yes" : "Unverified" },
+                new AbsaAvsValueItem { Key = "Initials Match", Value = hasInitials ? "Yes" : "Unverified" },
+                new AbsaAvsValueItem { Key = "Account Type Matched", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "Account Allows Credit", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "Account Accepts Credit", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "Account Allows Debit", Value = "Yes" },
+                new AbsaAvsValueItem { Key = "Account Accepts Debit", Value = "Yes" },
+                new AbsaAvsValueItem
+                {
+                    Key = "Email Address Match",
+                    Value = string.IsNullOrWhiteSpace(request.EmailAddress) ? "Unverified" : "Yes"
+                },
+                new AbsaAvsValueItem
+                {
+                    Key = "Cell Number Match",
+                    Value = string.IsNullOrWhiteSpace(request.CellNumber) ? "Unverified" : "Yes"
+                }
+            ],
+            ErrorList = [],
+            ResponseUtcTime = DateTime.UtcNow.ToString("O"),
+            UserFriendlyDisplayList = []
+        };
+    }
+
+    private static AbsaPaymentInitiateResponse SimulatePaymentInitiate(AbsaPaymentInitiateRequest request)
+    {
+        var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        return new AbsaPaymentInitiateResponse
+        {
+            Status = 2,
+            Correlations =
+            [
+                new AbsaPaymentCorrelation { Type = 1, Value = request.Source.StatementRef },
+                new AbsaPaymentCorrelation { Type = 2, Value = request.Target.StatementRef },
+                new AbsaPaymentCorrelation { Type = 3, Value = $"SIM-API-{stamp}" },
+                new AbsaPaymentCorrelation { Type = 4, Value = request.Economics.TransactionRef }
+            ],
+            ErrorList = []
+        };
+    }
+
+    private static AbsaPaymentStatusResponse SimulatePaymentStatus(AbsaPaymentStatusRequest request)
+    {
+        var items = request.Correlations.Select(corr => new AbsaPaymentStatusListItem
+        {
+            Status = 3,
+            Correlations =
+            [
+                new AbsaPaymentCorrelation { Type = 3, Value = corr.StartsWith("SIM-API-", StringComparison.Ordinal) ? corr : $"SIM-API-{corr}" },
+                new AbsaPaymentCorrelation { Type = 4, Value = corr }
+            ],
+            ErrorList = []
+        }).ToList();
+
+        return new AbsaPaymentStatusResponse
+        {
+            StatusList = items,
+            ErrorList = []
+        };
+    }
+
+    private static AbsaPaymentInitiateResponse DeserializePaymentInitiate(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaPaymentInitiateResponse>(body, JsonOptions)
+                   ?? new AbsaPaymentInitiateResponse
+                   {
+                       Status = 0,
+                       ErrorList =
+                       [
+                           new AbsaPaymentErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa payment initiate response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaPaymentInitiateResponse
+            {
+                Status = 0,
+                ErrorList =
+                [
+                    new AbsaPaymentErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa payment initiate response."
+                    }
+                ]
+            };
+        }
+    }
+
+    private static AbsaPaymentStatusResponse DeserializePaymentStatus(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaPaymentStatusResponse>(body, JsonOptions)
+                   ?? new AbsaPaymentStatusResponse
+                   {
+                       ErrorList =
+                       [
+                           new AbsaPaymentErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa payment status response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaPaymentStatusResponse
+            {
+                ErrorList =
+                [
+                    new AbsaPaymentErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa payment status response."
+                    }
+                ]
+            };
+        }
+    }
+
+    private static AbsaPaymentCallbackRegisterResponse DeserializePaymentCallbackRegister(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AbsaPaymentCallbackRegisterResponse>(body, JsonOptions)
+                   ?? new AbsaPaymentCallbackRegisterResponse
+                   {
+                       Status = 0,
+                       ErrorList =
+                       [
+                           new AbsaPaymentErrorItem
+                           {
+                               Code = "DESERIALIZE_ERROR",
+                               Description = "Unable to deserialize Absa payment callback register response."
+                           }
+                       ]
+                   };
+        }
+        catch (JsonException)
+        {
+            return new AbsaPaymentCallbackRegisterResponse
+            {
+                Status = 0,
+                ErrorList =
+                [
+                    new AbsaPaymentErrorItem
+                    {
+                        Code = "DESERIALIZE_ERROR",
+                        Description = "Unable to deserialize Absa payment callback register response."
+                    }
+                ]
+            };
+        }
+    }
+}

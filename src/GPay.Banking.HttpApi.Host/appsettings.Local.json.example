@@ -1,0 +1,36 @@
+{
+  "_comment": "Copy to appsettings.Local.json (gitignored).",
+  "AbsaCapi": {
+    "UseSimulator": false,
+    "SkipRequestSignature": false,
+    "Username": "",
+    "Password": "",
+    "CapiCode": "",
+    "ClientApiKey": "",
+    "ClientCertificatePath": "",
+    "ClientCertificatePassword": "",
+    "PaymentCallbackUri": "https://your-host/api/app/callback/process-payment?bank=Absa",
+    "PaymentCallbackToken": "",
+    "PaymentCallbackSupportEmail": ""
+  },
+  "BankCallbacks": {
+    "EnforceSourceAllowList": true,
+    "Banks": {
+      "Absa": {
+        "PaymentToken": "",
+        "AllowedSourceIps": [],
+        "AllowedSourceDomains": []
+      },
+      "Fnb": {
+        "PaymentToken": "",
+        "AllowedSourceIps": [],
+        "AllowedSourceDomains": []
+      },
+      "Nedbank": {
+        "PaymentToken": "",
+        "AllowedSourceIps": [],
+        "AllowedSourceDomains": []
+      }
+    }
+  }
+}

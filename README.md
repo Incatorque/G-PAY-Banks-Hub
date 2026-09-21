@@ -1,100 +1,53 @@
-# GPay Banking Orchestrator
+# GPay Banking (ABP)
 
-.NET 10 multi-bank banking platform. GPay talks to the **Orchestrator**; each bank runs as its own host with a dedicated RabbitMQ queue and shared GPay DTOs/`ApiResult<T>` envelopes.
+ASP.NET Boilerplate / ABP Framework layered banking service. Standardized against G-PAY-ABP patterns (DDD layers, feature folders, AuditedAggregateRoot, App* tables), hosted as a **standalone** Banking API under `C:\GPay\Bank Hub`.
+
+## Architecture
+
+```
+External service / G-PAY-ABP  →  HttpApi.Host (JWT)  →  Application AppServices
+                                                          → Domain ports
+                                                          → Absa adapters (in-process CAPI)
+Angular ops UI (web/)         →  dashboards / progress only (not primary payload source)
+```
+
+- **No RabbitMQ / Orchestrator worker.** Bank adapters run in-process.
+- **Payloads** for AVS/payments are expected from **external API callers** (`SubmitBatchAsync`, `VerifyAsync`, `InitiateAsync`), not from the Angular dashboard.
+- Angular under `web/` remains for health/ops dashboards.
 
 ## Solution layout
 
 | Project | Role |
 |---------|------|
-| `GPay.Banking.Contracts` | Shared DTOs, capability interfaces, MQ envelopes |
-| `GPay.Banking.Infrastructure` | RabbitMQ, Serilog/ES, HTTP logging, health |
-| `GPay.Banking.Persistence` | EF Core DbContext + entities scaffolded from **GPayDev**, Unit of Work |
-| `GPay.Banking.Orchestrator` | HTTP + MQ ingress, routing, `/health`, `/api/queues` |
-| `GPay.Banking.Absa` | Absa background worker: CAPI adapter + request queue consumer |
-| `web/gpay-banking-ops` | Angular IIS ops UI (health + queues) |
+| `GPay.Banking.Domain.Shared` | Enums, options (`AbsaCapi`, `AvsBatch`, `AbsaCallback`) |
+| `GPay.Banking.Domain` | Capability ports + `BankHub*` aggregates |
+| `GPay.Banking.Application.Contracts` | AppService interfaces, DTOs, permissions |
+| `GPay.Banking.Application` | AppServices + `AvsBatchProcessJob` |
+| `GPay.Banking.EntityFrameworkCore` | `BankingDbContext` (`AppBankHub*`) |
+| `GPay.Banking.HttpApi` | Callbacks controller |
+| `GPay.Banking.HttpApi.Host` | Host (JWT AuthServer audience `GPay`) |
+| `GPay.Banking.Services` | Bank adapters (Absa/Fnb/Nedbank × Api/HostToHost) |
 
-## Persistence (separate project)
+Legacy Orchestrator / RabbitMQ / Persistence scaffold live under `src\_legacy\` (do not deploy).
 
-`GPay.Banking.Persistence` owns all database access:
+## Run
 
-- Scaffolded entities + `BankingDbContext` from SQL Server **GPayDev**
-- `IUnitOfWork` / `IRepository<T>` implementations
-- Re-scaffold: `.\scripts\scaffold-gpaydev.ps1`
+1. Apply `scripts\sql\CreateBankHubAbpTables.sql` (or add EF migrations later).
+2. Set secrets (user-secrets / `GPAY_` env / `appsettings.Local.json`):
+   - `AbsaCapi:*` (or keep `UseSimulator=true`)
+   - `AbsaCallback:PaymentToken`
+3. `dotnet run --project src\GPay.Banking.HttpApi.Host`
+4. Swagger: `/swagger`
 
-Connection string lives in **gitignored** `appsettings.Local.json` (Orchestrator / Absa). Copy from teammate or create:
+## Key APIs
 
-```json
-{
-  "ConnectionStrings": {
-    "Banking": "Data Source=10.10.1.100;Initial Catalog=GPayDev;..."
-  },
-  "Database": {
-    "UseInMemory": false,
-    "EnsureCreated": false
-  }
-}
-```
+- `POST /api/app/account-verification/verify` — single AVS
+- `POST /api/app/account-verification/submit-batch` — external batch payload
+- `GET /api/app/account-verification/batch/{id}` — batch progress (dashboard)
+- `POST /api/app/instant-payment/initiate`
+- `POST /api/callbacks/absa/payment` — Absa webhook (token auth)
 
-Usage:
+## Config
 
-```csharp
-public class SomeService(IUnitOfWork uow)
-{
-    public Task<int> CountSettingsAsync(CancellationToken ct) =>
-        uow.Repository<AbpSetting>().CountAsync(cancellationToken: ct);
-}
-```
+See `src\GPay.Banking.HttpApi.Host\appsettings.json`. Default Absa mode is **simulator**.
 
-## Run locally
-
-```bash
-# Terminal 1 — Orchestrator (http://localhost:5100)
-dotnet run --project src/GPay.Banking.Orchestrator
-
-# Terminal 2 — Absa worker (http://localhost:5101/health)
-dotnet run --project src/GPay.Banking.Absa
-
-# Terminal 3 — Angular ops UI
-cd web/gpay-banking-ops
-npm start
-```
-
-Requires RabbitMQ on `localhost:5672`. Elasticsearch logging is off by default (`Elasticsearch:Enabled`).
-
-### Account verification (AVS)
-
-GPay sends one AVS contract for every bank. The orchestrator routes by bank:
-
-- `POST /api/avs` with `{ "bank": "Absa", "accountNumber": "...", "branchCode": "...", ... }`
-- or `POST /api/Absa/account-verification` (bank in route)
-
-Flow: **GPay → Orchestrator → Absa queue → Absa worker → Absa CAPI → direct reply → Orchestrator → GPay** (normalized `ApiResult<T>`).
-
-Absa settings (`AbsaCapi`): set `BaseUrl` (UAT: `https://capi-uat.absa.co.za`), `Username`, `Password`, `CapiCode`, `ClientApiKey`, optional mTLS cert.  
-`UseSimulator: true` (default) returns a realistic simulated Absa response without calling the bank.
-
-Swagger: `http://localhost:5100/swagger`
-
-## IIS
-
-1. Publish Orchestrator / Absa (`dotnet publish -c Release`).
-2. Create IIS sites pointing at publish folders (`web.config` included, AspNetCoreModuleV2).
-3. Build Angular: `npm run build` in `web/gpay-banking-ops`.
-4. Either:
-   - Host `dist/gpay-banking-ops/browser` as a separate IIS site (SPA rewrite via `public/web.config`), or
-   - Copy build output into Orchestrator `wwwroot` and use the same site.
-
-URL Rewrite module is required for Angular deep links when hosted as a static site.
-
-## Tests
-
-```bash
-dotnet test GPay.Banking.sln
-```
-
-## Adding a bank
-
-1. Create `GPay.Banking.{Bank}` host referencing Contracts + Infrastructure.
-2. Implement the capability interfaces (`IAccountVerificationService`, etc.).
-3. Consume `gpay.banking.{bank}.requests`, call the bank API, and reply directly to the orchestrator via RabbitMQ `ReplyTo` (no response queue).
-4. Register the bank under `Banking:Banks` in Orchestrator config.
