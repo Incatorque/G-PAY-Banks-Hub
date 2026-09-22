@@ -86,7 +86,7 @@ public static class CallbackSourceAllowList
     }
 
     /// <summary>
-    /// Resolves bank key from source IP/domain when <paramref name="bank"/> is omitted.
+    /// Resolves bank key from source IP/domain when the caller omitted an explicit bank key.
     /// </summary>
     public static async Task<string?> ResolveBankKeyAsync(
         BankCallbackOptions options,

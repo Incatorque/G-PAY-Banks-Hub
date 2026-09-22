@@ -11,6 +11,12 @@ using Volo.Abp.Domain.Repositories;
 
 namespace GPay.Banking;
 
+/// <summary>
+/// Instant payment AppService — PayShap / RTC initiate, status enquiry, and record lookup.
+/// </summary>
+/// <remarks>
+/// Routes under <c>/api/app/instant-payment/*</c>. Requires JWT and <c>Banking.Payments.*</c> permissions.
+/// </remarks>
 [Authorize(PaymentsPermissions.Default)]
 public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppService
 {
@@ -25,6 +31,12 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         _paymentRepository = paymentRepository;
     }
 
+    /// <summary>
+    /// Submits an instant payment to the bank named in the request body.
+    /// </summary>
+    /// <param name="input">Debit/credit accounts, amount, reference, rail, and target <c>Bank</c>.</param>
+    /// <returns>Submission result with status, bank references, <c>correlationId</c>, and <c>recordId</c>.</returns>
+    /// <remarks>Permission: <c>Banking.Payments.Initiate</c>. Amount must be &gt; 0. Default rail <c>RPP</c> (PayShap).</remarks>
     [Authorize(PaymentsPermissions.Initiate)]
     public async Task<PaymentResultDto> InitiateAsync(InitiatePaymentRequestDto input)
     {
@@ -77,6 +89,12 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         return dto;
     }
 
+    /// <summary>
+    /// Queries live payment status from the bank and updates the persisted record when found.
+    /// </summary>
+    /// <param name="input">Bank plus <c>transactionReference</c> and/or <c>apiReference</c> (at least one required).</param>
+    /// <returns>Normalized status payload from the bank.</returns>
+    /// <remarks>Permission: <c>Banking.Payments.View</c>. Use as fallback when Absa callbacks are missed.</remarks>
     [Authorize(PaymentsPermissions.View)]
     public async Task<PaymentResultDto> GetStatusAsync(PaymentStatusRequestDto input)
     {
@@ -121,6 +139,11 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         return dto;
     }
 
+    /// <summary>
+    /// Loads a previously persisted payment record by id (no live bank call).
+    /// </summary>
+    /// <param name="id">Payment record id returned as <c>recordId</c> from initiate/status.</param>
+    /// <remarks>Permission: <c>Banking.Payments.View</c>.</remarks>
     [Authorize(PaymentsPermissions.View)]
     public async Task<PaymentRecordDto> GetAsync(Guid id)
     {
@@ -203,4 +226,3 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         };
     }
 }
-

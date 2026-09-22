@@ -16,5 +16,8 @@ public class BankingPermissionDefinitionProvider : PermissionDefinitionProvider
         var pay = group.AddPermission(PaymentsPermissions.Default);
         pay.AddChild(PaymentsPermissions.Initiate);
         pay.AddChild(PaymentsPermissions.View);
+
+        var history = group.AddPermission(TransactionHistoryPermissions.Default);
+        history.AddChild(TransactionHistoryPermissions.View);
     }
 }

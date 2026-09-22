@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
-using GPay.Banking.Services;
 using GPay.Banking.EntityFrameworkCore;
+using GPay.Banking.Services;
+using GPay.Banking.Swagger;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -9,7 +11,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.OpenApi.Models;
 using Volo.Abp;
 using Volo.Abp.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Serilog;
@@ -34,6 +35,7 @@ public class BankingHttpApiHostModule : AbpModule
     {
         var configuration = context.Services.GetConfiguration();
         var hosting = context.Services.GetHostingEnvironment();
+        var requireGpayAuth = configuration.GetValue("AuthServer:RequireGpayAuth", true);
 
         context.Services.Configure<ForwardedHeadersOptions>(options =>
         {
@@ -42,27 +44,36 @@ public class BankingHttpApiHostModule : AbpModule
             options.KnownProxies.Clear();
         });
 
-        context.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
-            {
-                options.Authority = configuration["AuthServer:Authority"];
-                options.RequireHttpsMetadata = configuration.GetValue("AuthServer:RequireHttpsMetadata", true);
-                options.Audience = configuration["AuthServer:Audience"] ?? "GPay";
-            });
+        if (requireGpayAuth)
+        {
+            context.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(options =>
+                {
+                    options.Authority = configuration["AuthServer:Authority"];
+                    options.RequireHttpsMetadata = configuration.GetValue("AuthServer:RequireHttpsMetadata", true);
+                    options.Audience = configuration["AuthServer:Audience"] ?? "GPay";
+                });
 
-        context.Services.AddAuthorization();
+            context.Services.AddAuthorization();
+        }
+        else
+        {
+            // No JWT — [Authorize] / permission attributes still succeed.
+            context.Services.AddAuthorization(options =>
+            {
+                options.DefaultPolicy = new AuthorizationPolicyBuilder()
+                    .RequireAssertion(_ => true)
+                    .Build();
+            });
+            context.Services.AddSingleton<IAuthorizationHandler, AllowWhenGpayAuthDisabledHandler>();
+        }
 
         Configure<AbpAspNetCoreMvcOptions>(options =>
         {
             options.ConventionalControllers.Create(typeof(BankingApplicationModule).Assembly);
         });
 
-        context.Services.AddAbpSwaggerGen(options =>
-        {
-            options.SwaggerDoc("v1", new OpenApiInfo { Title = "GPay Banking API", Version = "v1" });
-            options.DocInclusionPredicate((_, _) => true);
-            options.CustomSchemaIds(type => type.FullName);
-        });
+        context.AddBankingSwagger();
 
         context.Services.AddCors(options =>
         {
@@ -89,6 +100,7 @@ public class BankingHttpApiHostModule : AbpModule
     {
         var app = context.GetApplicationBuilder();
         var env = context.GetEnvironment();
+        var requireGpayAuth = context.GetConfiguration().GetValue("AuthServer:RequireGpayAuth", true);
 
         app.UseForwardedHeaders();
 
@@ -100,13 +112,40 @@ public class BankingHttpApiHostModule : AbpModule
         app.UseCorrelationId();
         app.UseCors();
         app.UseRouting();
-        app.UseAuthentication();
+
+        if (requireGpayAuth)
+        {
+            app.UseAuthentication();
+        }
+
         app.UseAuthorization();
         app.UseSwagger();
         app.UseAbpSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/swagger/v1/swagger.json", "GPay Banking API");
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "GPay Banking API v1");
+            options.DocumentTitle = "GPay Banking API";
+            options.DisplayRequestDuration();
+            options.EnableDeepLinking();
+            options.EnableFilter();
+            options.DefaultModelsExpandDepth(2);
+            options.HeadContent = BankingSwaggerDescription.Styles;
         });
         app.UseConfiguredEndpoints();
+    }
+}
+
+/// <summary>
+/// When <c>AuthServer:RequireGpayAuth</c> is false, satisfies every authorization requirement.
+/// </summary>
+internal sealed class AllowWhenGpayAuthDisabledHandler : IAuthorizationHandler
+{
+    public Task HandleAsync(AuthorizationHandlerContext context)
+    {
+        foreach (var requirement in context.PendingRequirements.ToList())
+        {
+            context.Succeed(requirement);
+        }
+
+        return Task.CompletedTask;
     }
 }

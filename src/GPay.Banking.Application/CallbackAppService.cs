@@ -15,9 +15,19 @@ namespace GPay.Banking;
 
 /// <summary>
 /// Bank payment webhook AppService (ABP conventional endpoint).
-/// Register with banks as: POST /api/app/callback/process-payment?bank=Absa
-/// When bank is omitted, source IP/domain allow-lists can resolve it.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Register with banks as:
+/// <c>POST /api/app/callback/process-payment?bank=Absa</c>
+/// </para>
+/// <para>
+/// When <c>bank</c> is omitted, source IP / domain allow-lists can resolve it.
+/// Request body is bank-native JSON (Absa PaymentCallback). Not JWT-authenticated —
+/// secured via allow-list + shared Token (+ signature inside the bank adapter).
+/// Absa may retry; this handler is idempotent.
+/// </para>
+/// </remarks>
 public class CallbackAppService : ApplicationService, ICallbackAppService
 {
     private readonly IBankCapabilityResolver _resolver;
@@ -38,8 +48,17 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
     }
 
     /// <summary>
-    /// Anonymous bank webhook. Validates source allow-list, then dispatches to the bank adapter.
+    /// Processes a bank payment status callback and updates the matching payment record when found.
     /// </summary>
+    /// <param name="bank">
+    /// Bank key: <c>Absa</c>, <c>Fnb</c>, or <c>Nedbank</c>.
+    /// Omit to resolve from configured source IP / domain allow-lists.
+    /// </param>
+    /// <returns>Acknowledgement for the bank (<c>success</c> / <c>message</c>). Idempotent under Absa retries.</returns>
+    /// <remarks>
+    /// Anonymous. Body = bank-native JSON (Absa PaymentCallback with Token).
+    /// Secured by allow-list + shared Token (+ signature in adapter).
+    /// </remarks>
     [AllowAnonymous]
     public async Task<CallbackAckDto> ProcessPaymentAsync(string? bank = null)
     {

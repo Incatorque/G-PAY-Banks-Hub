@@ -37,15 +37,26 @@ Legacy Orchestrator / RabbitMQ / Persistence scaffold live under `src\_legacy\` 
    - `AbsaCapi:*` (or keep `UseSimulator=true`)
    - `AbsaCallback:PaymentToken`
 3. `dotnet run --project src\GPay.Banking.HttpApi.Host`
-4. Swagger: `/swagger`
+4. Swagger: `/swagger` (OpenAPI JSON: `/swagger/v1/swagger.json`)
+5. Full offline API reference: [`docs/Swagger-API-Reference.md`](docs/Swagger-API-Reference.md)
 
 ## Key APIs
 
-- `POST /api/app/account-verification/verify` — single AVS
-- `POST /api/app/account-verification/submit-batch` — external batch payload
-- `GET /api/app/account-verification/batch/{id}` — batch progress (dashboard)
-- `POST /api/app/instant-payment/initiate`
-- `POST /api/callbacks/absa/payment` — Absa webhook (token auth)
+| Method | Path | Auth |
+|--------|------|------|
+| `POST` | `/api/app/account-verification/verify` | JWT + `Banking.Avs.Verify` |
+| `POST` | `/api/app/account-verification/submit-batch` | JWT + `Banking.Avs.Upload` |
+| `GET` | `/api/app/account-verification/batch/{id}` | JWT + `Banking.Avs.View` |
+| `GET` | `/api/app/account-verification/batch-records?batchId={id}` | JWT + `Banking.Avs.View` |
+| `POST` | `/api/app/instant-payment/initiate` | JWT + `Banking.Payments.Initiate` |
+| `POST` | `/api/app/instant-payment/get-status` | JWT + `Banking.Payments.View` |
+| `GET` | `/api/app/instant-payment/{id}` | JWT + `Banking.Payments.View` |
+| `POST` | `/api/app/transaction-history/get` | JWT + `Banking.TransactionHistory.View` |
+| `POST` | `/api/app/callback/process-payment?bank=Absa` | Bank Token + IP allow-list (no JWT) |
+
+Set `AuthServer:RequireGpayAuth` to `false` to disable JWT (Swagger **Authorize** is hidden; AppService `[Authorize]` is bypassed). Callbacks still use bank token checks.
+
+In Swagger UI use **Authorize** with a Bearer token for protected operations when auth is on. Callback body is Absa-native JSON.
 
 ## Config
 

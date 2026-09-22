@@ -15,6 +15,12 @@ using Volo.Abp.Uow;
 
 namespace GPay.Banking;
 
+/// <summary>
+/// Account verification (AVS) AppService — single enquiry and async batch APIs.
+/// </summary>
+/// <remarks>
+/// Routes under <c>/api/app/account-verification/*</c>. Requires JWT and <c>Banking.Avs.*</c> permissions.
+/// </remarks>
 [Authorize(AvsPermissions.Default)]
 public class AccountVerificationAppService : ApplicationService, IAccountVerificationAppService
 {
@@ -41,6 +47,12 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         _guidGenerator = guidGenerator;
     }
 
+    /// <summary>
+    /// Verifies a single bank account (AVS) via the bank named in the request body.
+    /// </summary>
+    /// <param name="input">Account, branch, identity/name fields, and target <c>Bank</c>.</param>
+    /// <returns>Normalized match flags, result codes, <c>correlationId</c>, and persisted <c>recordId</c>.</returns>
+    /// <remarks>Permission: <c>Banking.Avs.Verify</c>. Persists a <c>BankHubAvsRecord</c>.</remarks>
     [Authorize(AvsPermissions.Verify)]
     public async Task<AccountVerificationResultDto> VerifyAsync(VerifyAccountRequestDto input)
     {
@@ -93,8 +105,14 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     }
 
     /// <summary>
-    /// Accepts AVS batch payloads from external services (not the Angular dashboard).
+    /// Accepts an AVS batch from an external API client (not the Angular dashboard).
     /// </summary>
+    /// <param name="input">Batch metadata and ordered verification items.</param>
+    /// <returns>Queued batch id and initial processing status.</returns>
+    /// <remarks>
+    /// Permission: <c>Banking.Avs.Upload</c>.
+    /// Max items: <c>AvsBatch:MaxItems</c> (default 20 000). Processed by background job; poll get-batch for progress.
+    /// </remarks>
     [Authorize(AvsPermissions.Upload)]
     public async Task<UploadAvsBatchResultDto> SubmitBatchAsync(SubmitAvsBatchRequestDto input)
     {
@@ -167,6 +185,11 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         };
     }
 
+    /// <summary>
+    /// Returns batch header progress (counts, percent complete, status).
+    /// </summary>
+    /// <param name="id">Batch id returned by submit-batch.</param>
+    /// <remarks>Permission: <c>Banking.Avs.View</c>.</remarks>
     [Authorize(AvsPermissions.View)]
     public async Task<BankHubAvsBatchDto> GetBatchAsync(Guid id)
     {
@@ -190,6 +213,11 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         };
     }
 
+    /// <summary>
+    /// Returns all AVS records for a batch, ordered by row number.
+    /// </summary>
+    /// <param name="batchId">Batch id.</param>
+    /// <remarks>Permission: <c>Banking.Avs.View</c>.</remarks>
     [Authorize(AvsPermissions.View)]
     public async Task<List<BankHubAvsRecordDto>> GetBatchRecordsAsync(Guid batchId)
     {
@@ -288,4 +316,3 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         return Math.Round(100m * checks.Count(c => c == true) / known, 1);
     }
 }
-

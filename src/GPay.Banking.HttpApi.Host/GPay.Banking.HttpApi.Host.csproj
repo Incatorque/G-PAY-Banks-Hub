@@ -4,7 +4,16 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>GPay.Banking</RootNamespace>
     <UserSecretsId>1dfc7671-0456-42f6-a87c-85cb1515e89b</UserSecretsId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+  <!-- Copy AppService / Contracts XML into the host output so Swagger IncludeXmlComments finds them. -->
+  <Target Name="CopyBankingXmlDocumentation" AfterTargets="Build">
+    <ItemGroup>
+      <_BankingXmlDocs Include="$(ProjectDir)..\GPay.Banking.Application.Contracts\bin\$(Configuration)\$(TargetFramework)\GPay.Banking.Application.Contracts.xml" />
+      <_BankingXmlDocs Include="$(ProjectDir)..\GPay.Banking.Application\bin\$(Configuration)\$(TargetFramework)\GPay.Banking.Application.xml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_BankingXmlDocs)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('%(Identity)')" />
+  </Target>
   <ItemGroup>
     <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
     <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />
