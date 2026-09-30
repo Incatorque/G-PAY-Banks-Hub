@@ -22,8 +22,8 @@ This document mirrors what Swagger exposes so callers can read offline.
 | `Banking.Avs.Verify` | `POST .../account-verification/verify` |
 | `Banking.Avs.Upload` | `POST .../account-verification/submit-batch` |
 | `Banking.Avs.View` | Batch progress / records |
-| `Banking.Payments.Initiate` | `POST .../instant-payment/initiate` |
-| `Banking.Payments.View` | Status enquiry + get record |
+| `Banking.Payments.Initiate` | `POST .../instant-payment/initiate`; callback register / amend / unregister |
+| `Banking.Payments.View` | Status enquiry + get record; callback defaults |
 | `Banking.TransactionHistory.View` | `POST .../transaction-history/get` |
 
 Click **Authorize** in Swagger UI and paste a Bearer token for protected operations.
@@ -73,9 +73,9 @@ ABP conventional controllers map AppServices to:
 
 **Request:** `bank`, `accountNumber`, `fromDate`, `toDate`, optional `pageSize`.
 
-**Notes:** Uses domain `IStatementService` / `ITransactionHistoryService`. Absa adapter is currently a stub (empty list) until CAPI statement is wired.
+**Notes:** Uses domain `IStatementService` / `ITransactionHistoryService`. Absa CAPI (Payment API v1.8) has no account-statement operation, so Absa returns `ABSA_STATEMENT_NOT_SUPPORTED`. Payment outcomes use instant-payment status; statement references come back as `sourceStatementRef` and `targetStatementRef`.
 
-### Callbacks
+### Callbacks (inbound webhook)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -85,7 +85,16 @@ ABP conventional controllers map AppServices to:
 
 **Retries:** Absa pushes on status change, then retries “several” times on failure; schedule is not published in the MIG. Handler is idempotent. After exhaustion Absa emails `SupportEmail`. Fallback: get-status.
 
-**Register with Absa:** `POST /api/PaymentCallback/Register` → Uri = this callback URL, Token, SupportEmail. HTTPS port **443** only.
+### Callback registration (channel admin)
+
+| Method | Path | Permission | Description |
+|--------|------|------------|-------------|
+| `GET` | `/api/app/callback-registration/defaults` | View | Recommended inbound URI + configured AbsaCapi defaults (no bank call). |
+| `POST` | `/api/app/callback-registration/register` | Initiate | Absa `POST /api/PaymentCallback/Register`. |
+| `POST` | `/api/app/callback-registration/amend` | Initiate | Re-register with new Uri/Token/SupportEmail (Absa has no separate Amend). |
+| `POST` | `/api/app/callback-registration/unregister` | Initiate | Absa `POST /api/PaymentCallback/UnRegister`. |
+
+**Register/amend body:** `bank`, `uri`, `token`, `supportEmail` (omit fields to use `AbsaCapi:PaymentCallback*`). HTTPS port **443** only for live Absa. Keep `BankCallbacks:Banks:Absa:PaymentToken` equal to the registered token.
 
 ---
 

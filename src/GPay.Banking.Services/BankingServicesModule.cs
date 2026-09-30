@@ -59,5 +59,6 @@ public class BankingServicesModule : AbpModule
         context.Services.AddScoped<ITransactionHistoryService, AbsaStatementService>();
         context.Services.AddScoped<INotificationService, AbsaNotificationService>();
         context.Services.AddScoped<IPaymentCallbackService, AbsaPaymentCallbackService>();
+        context.Services.AddScoped<IPaymentCallbackRegistrationService, AbsaPaymentCallbackRegistrationService>();
     }
 }

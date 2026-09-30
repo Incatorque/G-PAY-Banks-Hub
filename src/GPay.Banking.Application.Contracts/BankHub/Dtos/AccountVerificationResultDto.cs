@@ -92,6 +92,11 @@ public class AccountVerificationResultDto
     public string? ErrorMessage { get; set; }
 
     /// <summary>
+    /// Absa catalog entry for the bank code on this call. Null when Absa did not return an error code.
+    /// </summary>
+    public AbsaErrorInfo? AbsaError { get; set; }
+
+    /// <summary>
     /// <c>true</c> when the bank call completed and returned data (does not imply <see cref="IsVerified"/>).
     /// </summary>
     public bool Success { get; set; }

@@ -267,7 +267,8 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
                 CorrelationId = correlationId,
                 ResultCode = result.Error?.Code,
                 ResultDescription = result.Error?.Message,
-                ErrorMessage = result.Error?.Message
+                ErrorMessage = result.Error?.Message,
+                AbsaError = AbsaErrorResponses.From(result.Error)
             };
         }
 
@@ -297,7 +298,8 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             Reference = d.Reference,
             MatchingCriteria = d.MatchingCriteria,
             CorrelationId = correlationId,
-            SuccessRate = CalculateSuccessRate(d)
+            SuccessRate = CalculateSuccessRate(d),
+            AbsaError = KnownAbsaError(d.BankResultCode, d.ResultDescription)
         };
     }
 
@@ -314,5 +316,11 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         var known = checks.Count(c => c.HasValue);
         if (known == 0) return data.IsVerified ? 100m : 0m;
         return Math.Round(100m * checks.Count(c => c == true) / known, 1);
+    }
+
+    private static AbsaErrorInfo? KnownAbsaError(string? code, string? message)
+    {
+        var info = AbsaErrorResponses.FromCode(code, message);
+        return info is { Known: true } ? info : null;
     }
 }

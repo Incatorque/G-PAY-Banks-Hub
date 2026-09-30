@@ -82,7 +82,8 @@ public class TransactionHistoryAppService : ApplicationService, ITransactionHist
                 FromDate = fromDate,
                 ToDate = toDate,
                 ErrorCode = result.Error?.Code,
-                ErrorMessage = result.Error?.Message
+                ErrorMessage = result.Error?.Message,
+                AbsaError = AbsaErrorResponses.From(result.Error)
             };
         }
 

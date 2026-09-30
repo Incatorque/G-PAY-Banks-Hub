@@ -15,6 +15,7 @@ public interface IBankCapabilityResolver
     IStatementService GetStatement(BankCode bank);
     INotificationService GetNotification(BankCode bank);
     IPaymentCallbackService GetPaymentCallback(BankCode bank);
+    IPaymentCallbackRegistrationService GetPaymentCallbackRegistration(BankCode bank);
 }
 
 

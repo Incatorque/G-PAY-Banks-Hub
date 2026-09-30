@@ -34,4 +34,9 @@ public class TransactionHistoryResultDto
 
     /// <summary>Error detail when <see cref="Success"/> is <c>false</c>.</summary>
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Absa catalog entry when the statement call fails. Null on success.
+    /// </summary>
+    public AbsaErrorInfo? AbsaError { get; set; }
 }

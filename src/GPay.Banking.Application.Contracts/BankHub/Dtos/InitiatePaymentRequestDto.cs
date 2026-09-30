@@ -3,68 +3,88 @@ using System.ComponentModel.DataAnnotations;
 namespace GPay.Banking.BankHub;
 
 /// <summary>
-/// Request to initiate an instant payment (PayShap / RTC / related rails).
+/// Instant payment request — same body as legacy <c>InstantPaymentRequest</c>
+/// (<c>POST /api/{bank}/payments/instant</c>), plus <see cref="Bank"/> for the hub route.
 /// </summary>
-/// <remarks>
-/// Maps to Absa CAPI <c>api/payment/initiate</c> Economics / Authorisation fields via the Absa adapter.
-/// Amount must be greater than zero.
-/// </remarks>
 public class InitiatePaymentRequestDto
 {
-    /// <summary>
-    /// Target bank: <c>Absa</c>, <c>Fnb</c>, or <c>Nedbank</c>. Defaults to <c>Absa</c>.
-    /// </summary>
+    /// <summary>Target bank: Absa, Fnb, or Nedbank. Defaults to Absa.</summary>
     /// <example>Absa</example>
     public string Bank { get; set; } = "Absa";
 
-    /// <summary>
-    /// Debit (from) account number.
-    /// </summary>
-    /// <example>4049813068</example>
+    /// <summary>Debit account number (Absa CAPI-linked Source account).</summary>
     [Required]
     public string FromAccountNumber { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Credit (to) account number.
-    /// </summary>
-    /// <example>51000716346</example>
+    /// <summary>Credit account number.</summary>
     [Required]
     public string ToAccountNumber { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Credit branch / sort code. Required for most rails; Absa may default in some scenarios.
-    /// </summary>
-    /// <example>678910</example>
-    public string? ToBranchCode { get; set; }
+    /// <summary>Credit branch / sort code.</summary>
+    [Required]
+    public string ToBranchCode { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Payment amount in major currency units (must be &gt; 0).
-    /// </summary>
-    /// <example>1.00</example>
+    /// <summary>Payment amount in major currency units.</summary>
     public decimal Amount { get; set; }
 
-    /// <summary>
-    /// ISO 4217 currency code. Defaults to <c>ZAR</c>.
-    /// </summary>
-    /// <example>ZAR</example>
+    /// <summary>ISO 4217 currency code (default ZAR).</summary>
     public string Currency { get; set; } = "ZAR";
 
-    /// <summary>
-    /// Client payment reference (maps to Absa Economics.TransactionRef / statement refs when not overridden).
-    /// </summary>
-    /// <example>PAY20260922-001</example>
+    /// <summary>Client payment reference (Economics.TransactionRef).</summary>
     [Required]
     public string Reference { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Beneficiary / credit account holder name.
-    /// </summary>
+    /// <summary>Beneficiary name.</summary>
     public string? BeneficiaryName { get; set; }
 
-    /// <summary>
-    /// Payment rail / Absa Economics.Indicator:
-    /// <c>RPP</c> = PayShap (default), <c>IIP</c> = RTC, <c>PAAF</c> = other.
-    /// </summary>
-    /// <example>RPP</example>
+    /// <summary>Payment rail: RPP (PayShap), IIP (RTC), PAAF. Default RPP.</summary>
     public string PaymentRail { get; set; } = "RPP";
+
+    /// <summary>Authorisation.SubmittingEntityName (defaults from AbsaCapi config).</summary>
+    public string? SubmittingEntityName { get; set; }
+
+    /// <summary>Authorisation.SubsidiaryEntityName (defaults from AbsaCapi config).</summary>
+    public string? SubsidiaryEntityName { get; set; }
+
+    /// <summary>Authorisation.Indicator (default 0).</summary>
+    public int AuthorisationIndicator { get; set; }
+
+    /// <summary>Source account type (default 10 = Current).</summary>
+    public int FromAccountType { get; set; } = 10;
+
+    /// <summary>Source short name on Absa profile (defaults from AbsaCapi:DefaultSourceShortName).</summary>
+    public string? FromShortName { get; set; }
+
+    /// <summary>Source statement reference (defaults to Reference).</summary>
+    public string? FromStatementRef { get; set; }
+
+    /// <summary>Target account type (default 10).</summary>
+    public int ToAccountType { get; set; } = 10;
+
+    /// <summary>Target statement reference (defaults to Reference).</summary>
+    public string? ToStatementRef { get; set; }
+
+    /// <summary>Target trust-account flag: Y or N (default N).</summary>
+    public string? IsTrustAccount { get; set; }
+
+    /// <summary>Payment date yyyy-MM-dd (defaults to today SA time).</summary>
+    public string? PaymentDate { get; set; }
+
+    /// <summary>Proof-of-payment email.</summary>
+    public string? ProofOfPaymentEmail { get; set; }
+
+    /// <summary>Proof-of-payment mobile.</summary>
+    public string? ProofOfPaymentMobile { get; set; }
+
+    /// <summary>Proof-of-payment indicator: 1 = T (send), 0 = F. Legacy field.</summary>
+    public int? ProofOfPaymentIndicator { get; set; }
+
+    /// <summary>Optional per-payment callback URI.</summary>
+    public string? CallbackUri { get; set; }
+
+    /// <summary>Optional per-payment callback token.</summary>
+    public string? CallbackToken { get; set; }
+
+    /// <summary>Optional per-payment callback support email.</summary>
+    public string? CallbackSupportEmail { get; set; }
 }

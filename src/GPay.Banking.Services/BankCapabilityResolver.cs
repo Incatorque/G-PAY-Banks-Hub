@@ -20,6 +20,16 @@ public sealed class BankCapabilityResolver : IBankCapabilityResolver
     public INotificationService GetNotification(BankCode bank) => Resolve<INotificationService>(bank);
     public IPaymentCallbackService GetPaymentCallback(BankCode bank) => ResolvePaymentCallback(bank);
 
+    public IPaymentCallbackRegistrationService GetPaymentCallbackRegistration(BankCode bank)
+    {
+        if (bank != BankCode.Absa)
+        {
+            throw new NotSupportedException($"Payment callback registration for bank '{bank}' is not registered.");
+        }
+
+        return _serviceProvider.GetRequiredService<IPaymentCallbackRegistrationService>();
+    }
+
     private IPaymentCallbackService ResolvePaymentCallback(BankCode bank)
     {
         if (bank != BankCode.Absa)

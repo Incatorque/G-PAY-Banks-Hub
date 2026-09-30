@@ -48,8 +48,8 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
         var shortName = FirstNonEmpty(request.FromShortName, _options.DefaultSourceShortName) ?? "GPAY";
         var submitting = FirstNonEmpty(request.SubmittingEntityName, _options.DefaultSubmittingEntityName) ?? "GPay";
         var subsidiary = FirstNonEmpty(request.SubsidiaryEntityName, _options.DefaultSubsidiaryEntityName) ?? submitting;
-        var fromStmt = FirstNonEmpty(request.FromStatementRef, request.Reference) ?? request.Reference;
-        var toStmt = FirstNonEmpty(request.ToStatementRef, request.Reference) ?? request.Reference;
+        var fromStmt = Truncate(FirstNonEmpty(request.FromStatementRef, request.Reference) ?? request.Reference, 20);
+        var toStmt = Truncate(FirstNonEmpty(request.ToStatementRef, request.Reference) ?? request.Reference, 20);
         var paymentDate = string.IsNullOrWhiteSpace(request.PaymentDate)
             ? DateTimeOffset.UtcNow.ToOffset(SouthAfricaOffset).ToString("yyyy-MM-dd")
             : request.PaymentDate.Trim();
@@ -58,18 +58,25 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             ? request.FromAccountType
             : _options.DefaultSourceAccountType;
 
-        AbsaPaymentProofOfPayment? proof = null;
-        if (!string.IsNullOrWhiteSpace(request.ProofOfPaymentEmail) ||
-            !string.IsNullOrWhiteSpace(request.ProofOfPaymentMobile) ||
-            request.ProofOfPaymentIndicator.HasValue)
+        // Absa MG0001: Proof of Payment object is mandatory. Indicator is T/F on the wire.
+        var sendPop = request.ProofOfPaymentIndicator switch
         {
-            proof = new AbsaPaymentProofOfPayment
-            {
-                EmailAddress = request.ProofOfPaymentEmail?.Trim(),
-                MobileNumber = request.ProofOfPaymentMobile?.Trim(),
-                Indicator = request.ProofOfPaymentIndicator
-            };
-        }
+            1 => true,
+            0 => false,
+            _ => !string.IsNullOrWhiteSpace(request.ProofOfPaymentEmail)
+                 || !string.IsNullOrWhiteSpace(request.ProofOfPaymentMobile)
+        };
+
+        var proof = new AbsaPaymentProofOfPayment
+        {
+            EmailAddress = string.IsNullOrWhiteSpace(request.ProofOfPaymentEmail)
+                ? null
+                : request.ProofOfPaymentEmail.Trim(),
+            MobileNumber = string.IsNullOrWhiteSpace(request.ProofOfPaymentMobile)
+                ? null
+                : request.ProofOfPaymentMobile.Trim(),
+            Indicator = sendPop ? "T" : "F"
+        };
 
         AbsaPaymentCallback? callback = null;
         var callbackUri = FirstNonEmpty(request.CallbackUri, _options.PaymentCallbackUri);
@@ -114,7 +121,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
                 CurrencyCode = string.IsNullOrWhiteSpace(request.Currency) ? "ZAR" : request.Currency.Trim().ToUpperInvariant(),
                 Amount = FormatAmount(request.Amount),
                 PaymentDate = paymentDate,
-                TransactionRef = request.Reference.Trim()
+                TransactionRef = Truncate(request.Reference.Trim(), 35)
             },
             ProofOfPayment = proof,
             Callback = callback
@@ -138,6 +145,8 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             TransactionId = txRef,
             TransactionReference = txRef,
             ApiReference = apiRef,
+            SourceStatementRef = response.GetCorrelation(1),
+            TargetStatementRef = response.GetCorrelation(2),
             Status = label,
             RawStatusLabel = label,
             BankStatusCode = statusCode,
@@ -145,7 +154,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             Reference = request.Reference,
             Amount = request.Amount,
             Currency = request.Currency,
-            ResultDescription = firstError?.Description ?? firstError?.Message ?? label,
+            ResultDescription = firstError?.Description ?? firstError?.Message ?? AbsaPaymentStatuses.ToBankName(statusCode),
             ErrorCode = firstError?.Code
         };
     }
@@ -196,29 +205,30 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             TransactionId = txRef ?? apiRef,
             TransactionReference = txRef,
             ApiReference = apiRef,
+            SourceStatementRef = item.GetCorrelation(1),
+            TargetStatementRef = item.GetCorrelation(2),
             Status = label,
             RawStatusLabel = label,
             BankStatusCode = statusCode,
             ErrorCode = firstError?.Code,
-            ResultDescription = firstError?.Description ?? firstError?.Message ?? label
+            ResultDescription = firstError?.Description ?? firstError?.Message ?? AbsaPaymentStatuses.ToBankName(statusCode)
         };
     }
 
     /// <inheritdoc />
     public string ToStatusLabel(int? statusCode, bool hasErrors)
     {
-        if (hasErrors || statusCode is null or 0)
+        if (statusCode is null or 0)
         {
             return "Failed";
         }
 
-        return statusCode switch
+        if (hasErrors && statusCode is 4 or 6 or 7)
         {
-            2 => "Submitted",
-            3 => "Completed",
-            8 => "Duplicate",
-            _ => "Pending"
-        };
+            return "Failed";
+        }
+
+        return AbsaPaymentStatuses.ToLabel(statusCode);
     }
 
     private static string FormatAmount(decimal amount) =>
@@ -236,4 +246,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
 
         return null;
     }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max];
 }

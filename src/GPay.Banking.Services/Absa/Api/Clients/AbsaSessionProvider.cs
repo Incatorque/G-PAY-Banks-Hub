@@ -1,5 +1,7 @@
 using GPay.Banking.Services.Absa;
 using GPay.Banking;
+using GPay.Banking.Domain;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using GPay.Banking.Services;
@@ -22,6 +24,7 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
     private readonly IAbsaRequestSigner _requestSigner;
     private readonly AbsaCapiOptions _options;
     private readonly ILogger<AbsaSessionProvider> _logger;
+    private readonly IBankApiCallAuditor _auditor;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private string? _session;
@@ -34,12 +37,14 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
         HttpClient httpClient,
         IAbsaRequestSigner requestSigner,
         IOptions<AbsaCapiOptions> options,
-        ILogger<AbsaSessionProvider> logger)
+        ILogger<AbsaSessionProvider> logger,
+        IBankApiCallAuditor auditor)
     {
         _httpClient = httpClient;
         _requestSigner = requestSigner;
         _options = options.Value;
         _logger = logger;
+        _auditor = auditor;
     }
 
     /// <inheritdoc />
@@ -78,33 +83,62 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
             };
             _requestSigner.ApplyHeaders(request, payload);
 
-            _logger.LogInformation("Absa CAPI authenticate {Uri}", uri);
-
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
+            var started = Stopwatch.StartNew();
+            int? statusCode = null;
+            string? body = null;
+            var success = false;
+            try
             {
-                _logger.LogError("Absa authenticate failed: {Status} {Body}", (int)response.StatusCode, body);
-                throw new InvalidOperationException($"Absa authenticate failed with status {(int)response.StatusCode}: {body}");
+                _logger.LogInformation("Absa CAPI authenticate {Uri}", uri);
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                statusCode = (int)response.StatusCode;
+                body = await response.Content.ReadAsStringAsync(cancellationToken);
+                success = response.IsSuccessStatusCode;
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("Absa authenticate failed: {Status} {Body}", statusCode, body);
+                    throw new InvalidOperationException($"Absa authenticate failed with status {statusCode}: {body}");
+                }
+
+                var auth = JsonSerializer.Deserialize<AuthenticateResponse>(body, JsonOptions)
+                    ?? throw new InvalidOperationException("Unable to deserialize Absa authenticate response.");
+
+                if (auth.Success != true || string.IsNullOrWhiteSpace(auth.Session))
+                {
+                    var error = auth.ErrorList?.FirstOrDefault()?.Description ?? "Authentication unsuccessful.";
+                    throw new InvalidOperationException($"Absa authenticate rejected: {error}");
+                }
+
+                _session = auth.Session;
+                _expiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, _options.SessionCacheSeconds));
+                _logger.LogInformation(
+                    "Absa session acquired CorrelationId={CorrelationId} ExpiresAt={ExpiresAt}",
+                    auth.CorrelationId,
+                    _expiresAt);
+                return _session;
             }
-
-            var auth = JsonSerializer.Deserialize<AuthenticateResponse>(body, JsonOptions)
-                ?? throw new InvalidOperationException("Unable to deserialize Absa authenticate response.");
-
-            if (auth.Success != true || string.IsNullOrWhiteSpace(auth.Session))
+            finally
             {
-                var error = auth.ErrorList?.FirstOrDefault()?.Description ?? "Authentication unsuccessful.";
-                throw new InvalidOperationException($"Absa authenticate rejected: {error}");
+                started.Stop();
+                await AbsaCallAudit.WriteAsync(
+                    _auditor,
+                    _logger,
+                    new BankApiCallAuditEntry
+                    {
+                        Direction = "Outbound",
+                        Operation = "Authenticate",
+                        HttpMethod = HttpMethod.Post.Method,
+                        Path = uri.AbsolutePath,
+                        HttpStatus = statusCode,
+                        RequestJson = AbsaApiPayloadRedactor.Redact(payload),
+                        ResponseJson = AbsaApiPayloadRedactor.Redact(body),
+                        DurationMs = started.ElapsedMilliseconds,
+                        Success = success
+                    },
+                    cancellationToken);
             }
-
-            _session = auth.Session;
-            _expiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, _options.SessionCacheSeconds));
-            _logger.LogInformation(
-                "Absa session acquired CorrelationId={CorrelationId} ExpiresAt={ExpiresAt}",
-                auth.CorrelationId,
-                _expiresAt);
-            return _session;
         }
         finally
         {

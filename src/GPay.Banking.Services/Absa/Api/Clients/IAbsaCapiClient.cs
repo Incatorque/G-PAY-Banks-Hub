@@ -45,6 +45,13 @@ public interface IAbsaCapiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Unregisters a payment callback URI with Absa.
+    /// </summary>
+    Task<AbsaPaymentCallbackRegisterResponse> UnregisterPaymentCallbackAsync(
+        AbsaPaymentCallbackUnregisterRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Sends a raw JSON request to Absa CAPI with security headers.
     /// </summary>
     Task<string> SendAsync(string relativePath, HttpMethod method, string? jsonBody, CancellationToken cancellationToken = default);

@@ -1,0 +1,3 @@
+# Scaffold working files, logs, and local backups (never commit)
+.work/
+*.log

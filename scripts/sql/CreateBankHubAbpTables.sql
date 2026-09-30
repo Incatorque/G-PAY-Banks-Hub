@@ -95,12 +95,39 @@ BEGIN
     [RequestJson] nvarchar(max) NULL,
     [ResponseJson] nvarchar(max) NULL,
     [ErrorMessage] nvarchar(max) NULL,
+    [LastStatusCheckTime] datetime2 NULL,
     [ExtraProperties] nvarchar(max) NOT NULL,
     [ConcurrencyStamp] nvarchar(40) NOT NULL,
     [CreationTime] datetime2 NOT NULL,
     [CreatorId] uniqueidentifier NULL,
     [LastModificationTime] datetime2 NULL,
     [LastModifierId] uniqueidentifier NULL
+  );
+END
+GO
+IF COL_LENGTH(N'AppBankHubPaymentRecords', N'LastStatusCheckTime') IS NULL
+  ALTER TABLE [AppBankHubPaymentRecords] ADD [LastStatusCheckTime] datetime2 NULL;
+GO
+IF OBJECT_ID(N'[AppBankHubApiCalls]', N'U') IS NULL
+BEGIN
+  CREATE TABLE [AppBankHubApiCalls] (
+    [Id] uniqueidentifier NOT NULL PRIMARY KEY,
+    [BankCode] nvarchar(32) NOT NULL,
+    [Direction] nvarchar(16) NOT NULL,
+    [Operation] nvarchar(64) NOT NULL,
+    [HttpMethod] nvarchar(16) NULL,
+    [Path] nvarchar(max) NULL,
+    [HttpStatus] int NULL,
+    [CorrelationId] nvarchar(max) NULL,
+    [RequestJson] nvarchar(max) NULL,
+    [ResponseJson] nvarchar(max) NULL,
+    [DurationMs] bigint NULL,
+    [Success] bit NOT NULL,
+    [ErrorCode] nvarchar(max) NULL,
+    [ExtraProperties] nvarchar(max) NOT NULL,
+    [ConcurrencyStamp] nvarchar(40) NOT NULL,
+    [CreationTime] datetime2 NOT NULL,
+    [CreatorId] uniqueidentifier NULL
   );
 END
 GO

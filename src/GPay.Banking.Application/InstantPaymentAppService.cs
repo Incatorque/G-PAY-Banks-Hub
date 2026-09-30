@@ -22,13 +22,16 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
 {
     private readonly IBankCapabilityResolver _resolver;
     private readonly IRepository<BankHubPaymentRecord, Guid> _paymentRepository;
+    private readonly IGpayOrderSync _gpayOrderSync;
 
     public InstantPaymentAppService(
         IBankCapabilityResolver resolver,
-        IRepository<BankHubPaymentRecord, Guid> paymentRepository)
+        IRepository<BankHubPaymentRecord, Guid> paymentRepository,
+        IGpayOrderSync gpayOrderSync)
     {
         _resolver = resolver;
         _paymentRepository = paymentRepository;
+        _gpayOrderSync = gpayOrderSync;
     }
 
     /// <summary>
@@ -51,12 +54,28 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         {
             FromAccountNumber = input.FromAccountNumber,
             ToAccountNumber = input.ToAccountNumber,
-            ToBranchCode = input.ToBranchCode ?? string.Empty,
+            ToBranchCode = input.ToBranchCode,
             Amount = input.Amount,
             Currency = input.Currency,
             Reference = input.Reference,
             BeneficiaryName = input.BeneficiaryName,
-            PaymentRail = string.IsNullOrWhiteSpace(input.PaymentRail) ? "RPP" : input.PaymentRail
+            PaymentRail = string.IsNullOrWhiteSpace(input.PaymentRail) ? "RPP" : input.PaymentRail,
+            SubmittingEntityName = input.SubmittingEntityName,
+            SubsidiaryEntityName = input.SubsidiaryEntityName,
+            AuthorisationIndicator = input.AuthorisationIndicator,
+            FromAccountType = input.FromAccountType,
+            FromShortName = input.FromShortName,
+            FromStatementRef = input.FromStatementRef,
+            ToAccountType = input.ToAccountType,
+            ToStatementRef = input.ToStatementRef,
+            IsTrustAccount = input.IsTrustAccount,
+            PaymentDate = input.PaymentDate,
+            ProofOfPaymentEmail = input.ProofOfPaymentEmail,
+            ProofOfPaymentMobile = input.ProofOfPaymentMobile,
+            ProofOfPaymentIndicator = input.ProofOfPaymentIndicator,
+            CallbackUri = input.CallbackUri,
+            CallbackToken = input.CallbackToken,
+            CallbackSupportEmail = input.CallbackSupportEmail
         };
 
         var service = _resolver.GetInstantPayment(bank);
@@ -86,6 +105,7 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         };
         await _paymentRepository.InsertAsync(record, autoSave: true);
         dto.RecordId = record.Id;
+        await SyncGpayAsync(record, dto.SourceStatementRef, dto.TargetStatementRef, dto.ResultDescription);
         return dto;
     }
 
@@ -124,16 +144,28 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
             record = await _paymentRepository.FirstOrDefaultAsync(x => x.ApiReference == input.ApiReference);
         }
 
-        if (record is not null && result.Success && result.Data is not null)
+        if (record is not null)
         {
-            record.Status = dto.Status ?? record.Status;
-            record.TransactionReference = dto.TransactionReference ?? record.TransactionReference;
-            record.ApiReference = dto.ApiReference ?? record.ApiReference;
-            record.BankStatusCode = dto.BankStatusCode;
-            record.ResultDescription = dto.ResultDescription;
-            record.ResponseJson = JsonSerializer.Serialize(result);
-            await _paymentRepository.UpdateAsync(record, autoSave: true);
+            // Absa status has no amount — fill from the hub record saved at initiate.
             dto.RecordId = record.Id;
+            dto.Amount ??= record.Amount;
+            dto.Currency ??= record.Currency;
+            dto.Reference ??= record.Reference;
+            dto.PaymentRail ??= record.PaymentRail;
+            dto.TransactionReference ??= record.TransactionReference;
+            dto.ApiReference ??= record.ApiReference;
+
+            if (result.Success && result.Data is not null)
+            {
+                record.Status = dto.Status ?? record.Status;
+                record.TransactionReference = dto.TransactionReference ?? record.TransactionReference;
+                record.ApiReference = dto.ApiReference ?? record.ApiReference;
+                record.BankStatusCode = dto.BankStatusCode;
+                record.ResultDescription = dto.ResultDescription;
+                record.ResponseJson = JsonSerializer.Serialize(result);
+                await _paymentRepository.UpdateAsync(record, autoSave: true);
+                await SyncGpayAsync(record, dto.SourceStatementRef, dto.TargetStatementRef, dto.ResultDescription);
+            }
         }
 
         return dto;
@@ -172,7 +204,8 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
                 CorrelationId = correlationId,
                 Status = "Error",
                 ErrorCode = result.Error?.Code,
-                ErrorMessage = result.Error?.Message
+                ErrorMessage = result.Error?.Message,
+                AbsaError = AbsaErrorResponses.From(result.Error)
             };
         }
 
@@ -187,10 +220,13 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
             Currency = d.Currency,
             ApiReference = d.ApiReference,
             TransactionReference = d.TransactionReference ?? d.TransactionId,
+            SourceStatementRef = d.SourceStatementRef,
+            TargetStatementRef = d.TargetStatementRef,
             BankStatusCode = d.BankStatusCode?.ToString(),
             PaymentRail = d.PaymentRail,
             ResultDescription = d.ResultDescription,
-            ErrorCode = d.ErrorCode
+            ErrorCode = d.ErrorCode,
+            AbsaError = AbsaErrorResponses.FromCode(d.ErrorCode, d.ResultDescription)
         };
     }
 
@@ -204,7 +240,8 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
                 CorrelationId = correlationId,
                 Status = "Error",
                 ErrorCode = result.Error?.Code,
-                ErrorMessage = result.Error?.Message
+                ErrorMessage = result.Error?.Message,
+                AbsaError = AbsaErrorResponses.From(result.Error)
             };
         }
 
@@ -219,10 +256,31 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
             Currency = d.Currency,
             ApiReference = d.ApiReference,
             TransactionReference = d.TransactionReference ?? d.TransactionId,
+            SourceStatementRef = d.SourceStatementRef,
+            TargetStatementRef = d.TargetStatementRef,
             BankStatusCode = d.BankStatusCode?.ToString(),
             PaymentRail = d.PaymentRail,
             ResultDescription = d.ResultDescription,
-            ErrorCode = d.ErrorCode
+            ErrorCode = d.ErrorCode,
+            AbsaError = AbsaErrorResponses.FromCode(d.ErrorCode, d.ResultDescription)
         };
+    }
+
+    private Task SyncGpayAsync(
+        BankHubPaymentRecord record,
+        string? sourceStatementRef,
+        string? targetStatementRef,
+        string? note)
+    {
+        return _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
+        {
+            Reference = record.Reference,
+            TransactionReference = record.TransactionReference,
+            SourceStatementRef = sourceStatementRef,
+            TargetStatementRef = targetStatementRef,
+            HubStatus = record.Status,
+            Note = note ?? record.ErrorMessage ?? record.ResultDescription,
+            Amount = record.Amount
+        });
     }
 }

@@ -53,6 +53,11 @@ public sealed class AbsaCapiOptions
     public string PaymentCallbackRegisterPath { get; set; } = "/api/PaymentCallback/Register";
 
     /// <summary>
+    /// Payment callback unregister path.
+    /// </summary>
+    public string PaymentCallbackUnregisterPath { get; set; } = "/api/PaymentCallback/UnRegister";
+
+    /// <summary>
     /// Default Authorisation.SubmittingEntityName.
     /// </summary>
     public string DefaultSubmittingEntityName { get; set; } = string.Empty;

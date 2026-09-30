@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
-using System.Text.Json;
+using System.Diagnostics;
 using GPay.Banking;
 using GPay.Banking.Domain;
-using GPay.Banking.Domain.Dtos;
+using GPay.Banking.Services.Absa.Api.Clients;
+using GPay.Banking.Services.Absa.Api.Mapping;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -14,41 +15,37 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
 {
     private static readonly ConcurrentDictionary<string, byte> Seen = new(StringComparer.Ordinal);
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly BankCallbackOptions _options;
     private readonly ILogger<AbsaPaymentCallbackService> _logger;
+    private readonly IBankApiCallAuditor _auditor;
 
     public AbsaPaymentCallbackService(
         IOptions<BankCallbackOptions> options,
-        ILogger<AbsaPaymentCallbackService> logger)
+        ILogger<AbsaPaymentCallbackService> logger,
+        IBankApiCallAuditor auditor)
     {
         _options = options.Value;
         _logger = logger;
+        _auditor = auditor;
     }
 
     public BankCode Bank => BankCode.Absa;
 
-    public Task<PaymentCallbackResult> HandlePaymentAsync(
+    public async Task<PaymentCallbackResult> HandlePaymentAsync(
         PaymentCallbackInbound inbound,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var started = Stopwatch.StartNew();
 
-        AbsaPaymentCallbackDto? payload;
-        try
-        {
-            payload = JsonSerializer.Deserialize<AbsaPaymentCallbackDto>(inbound.RawJson, JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "Absa payment callback JSON deserialize failed");
-            return Task.FromResult(PaymentCallbackResult.Fail("Invalid callback payload."));
-        }
-
+        var payload = AbsaPaymentCallbackParser.Parse(inbound.RawJson);
         if (payload is null)
         {
-            return Task.FromResult(PaymentCallbackResult.Fail("Invalid callback payload."));
+            _logger.LogWarning("Absa payment callback JSON deserialize failed");
+            var invalid = PaymentCallbackResult.Fail("Invalid callback payload.");
+            await AuditAsync(inbound, null, invalid, started, cancellationToken);
+            return invalid;
         }
 
         var expectedToken = GetAbsaPaymentToken();
@@ -57,46 +54,71 @@ public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
             !string.Equals(token, expectedToken, StringComparison.Ordinal))
         {
             _logger.LogWarning("Absa payment callback rejected: invalid token");
-            return Task.FromResult(PaymentCallbackResult.Unauthorized("Invalid token."));
+            var unauthorized = PaymentCallbackResult.Unauthorized("Invalid token.");
+            await AuditAsync(inbound, payload, unauthorized, started, cancellationToken);
+            return unauthorized;
         }
 
-        var apiRef = payload.Correlations?.FirstOrDefault(c => c.Type == 3)?.Value;
-        var txRef = payload.Correlations?.FirstOrDefault(c => c.Type == 4)?.Value;
-        var status = payload.PaymentStatus?.ToString() ?? string.Empty;
-        var key = $"{txRef ?? apiRef}|{payload.Type}|{status}";
+        var apiRef = payload.ApiReference;
+        var txRef = payload.TransactionReference;
+        var status = payload.StatusLabel;
+        var key = $"{txRef ?? apiRef}|{payload.PaymentRail}|{payload.StatusCode}";
 
         if (!Seen.TryAdd(key, 0))
         {
             _logger.LogInformation("Absa payment callback duplicate ignored Key={Key}", key);
-            return Task.FromResult(PaymentCallbackResult.Duplicate());
+            var duplicate = PaymentCallbackResult.Duplicate();
+            await AuditAsync(inbound, payload, duplicate, started, cancellationToken);
+            return duplicate;
         }
 
         _logger.LogInformation(
-            "Absa payment callback Type={Type} Status={Status} TxRef={TxRef}",
-            payload.Type,
+            "Absa payment callback Type={Type} Status={Status} BankStatus={BankStatus} TxRef={TxRef}",
+            payload.PaymentRail,
             status,
+            payload.StatusCode,
             txRef);
 
-        decimal? amount = null;
-        if (decimal.TryParse(payload.Amount, out var parsedAmount))
-        {
-            amount = parsedAmount;
-        }
-
-        var firstError = payload.ErrorList?.FirstOrDefault();
         var update = new PaymentCallbackUpdate
         {
             TransactionReference = txRef,
             ApiReference = apiRef,
-            Status = string.IsNullOrWhiteSpace(status) ? null : status,
-            PaymentRail = payload.Type,
-            Amount = amount,
-            Currency = payload.CurrencyCode,
-            ErrorMessage = firstError?.Description ?? firstError?.Message,
+            Status = status,
+            PaymentRail = payload.PaymentRail,
+            ErrorMessage = payload.ErrorMessage,
             ResponseJson = inbound.RawJson
         };
 
-        return Task.FromResult(PaymentCallbackResult.Ok(update));
+        var ok = PaymentCallbackResult.Ok(update);
+        await AuditAsync(inbound, payload, ok, started, cancellationToken);
+        return ok;
+    }
+
+    private Task AuditAsync(
+        PaymentCallbackInbound inbound,
+        AbsaParsedPaymentCallback? payload,
+        PaymentCallbackResult result,
+        Stopwatch started,
+        CancellationToken cancellationToken)
+    {
+        started.Stop();
+        return AbsaCallAudit.WriteAsync(
+            _auditor,
+            _logger,
+            new BankApiCallAuditEntry
+            {
+                Direction = "Inbound",
+                Operation = "PaymentCallback",
+                HttpMethod = "POST",
+                Path = "/api/app/callback/process-payment",
+                CorrelationId = payload?.ApiReference,
+                RequestJson = AbsaApiPayloadRedactor.Redact(inbound.RawJson),
+                ResponseJson = result.Message,
+                DurationMs = started.ElapsedMilliseconds,
+                Success = result.Success,
+                ErrorCode = payload?.ErrorCode ?? payload?.StatusCode?.ToString()
+            },
+            cancellationToken);
     }
 
     private string GetAbsaPaymentToken()

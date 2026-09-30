@@ -34,17 +34,20 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
     private readonly IRepository<BankHubPaymentRecord, Guid> _paymentRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly BankCallbackOptions _callbackOptions;
+    private readonly IGpayOrderSync _gpayOrderSync;
 
     public CallbackAppService(
         IBankCapabilityResolver resolver,
         IRepository<BankHubPaymentRecord, Guid> paymentRepository,
         IHttpContextAccessor httpContextAccessor,
-        IOptions<BankCallbackOptions> callbackOptions)
+        IOptions<BankCallbackOptions> callbackOptions,
+        IGpayOrderSync gpayOrderSync)
     {
         _resolver = resolver;
         _paymentRepository = paymentRepository;
         _httpContextAccessor = httpContextAccessor;
         _callbackOptions = callbackOptions.Value;
+        _gpayOrderSync = gpayOrderSync;
     }
 
     /// <summary>
@@ -221,5 +224,13 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
 
         record.ErrorMessage = update.ErrorMessage;
         await _paymentRepository.UpdateAsync(record, autoSave: true);
+        await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
+        {
+            Reference = record.Reference,
+            TransactionReference = record.TransactionReference,
+            HubStatus = record.Status,
+            Note = record.ErrorMessage ?? record.ResultDescription,
+            Amount = record.Amount
+        });
     }
 }

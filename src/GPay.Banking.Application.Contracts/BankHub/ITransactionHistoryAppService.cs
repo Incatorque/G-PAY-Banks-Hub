@@ -13,7 +13,8 @@ namespace GPay.Banking.BankHub;
 /// <para>
 /// Requires JWT Bearer. Permission: <c>Banking.TransactionHistory.View</c>.
 /// Uses the bank statement capability (<see cref="Domain.IStatementService"/> /
-/// <see cref="Domain.ITransactionHistoryService"/>). Absa currently returns a stub empty list until CAPI statement is wired.
+/// <see cref="Domain.ITransactionHistoryService"/>). Absa CAPI does not expose account statements;
+/// that bank returns <c>ABSA_STATEMENT_NOT_SUPPORTED</c>. Payment outcomes use instant-payment status.
 /// </para>
 /// </remarks>
 public interface ITransactionHistoryAppService : IApplicationService

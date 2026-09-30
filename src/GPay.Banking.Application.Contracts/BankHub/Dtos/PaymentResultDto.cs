@@ -36,6 +36,12 @@ public class PaymentResultDto
     /// <summary>Bank / scheme transaction reference (Absa Correlations type 4).</summary>
     public string? TransactionReference { get; set; }
 
+    /// <summary>Source statement reference (Absa Correlations type 1).</summary>
+    public string? SourceStatementRef { get; set; }
+
+    /// <summary>Target statement reference (Absa Correlations type 2).</summary>
+    public string? TargetStatementRef { get; set; }
+
     /// <summary>Bank-native numeric/string status code when supplied.</summary>
     public string? BankStatusCode { get; set; }
 
@@ -53,6 +59,11 @@ public class PaymentResultDto
 
     /// <summary>Error detail when <see cref="Success"/> is <c>false</c>.</summary>
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Absa catalog entry for the bank code on this call. Null when Absa did not return an error code.
+    /// </summary>
+    public AbsaErrorInfo? AbsaError { get; set; }
 
     /// <summary>
     /// <c>true</c> when the bank call completed and returned payment data

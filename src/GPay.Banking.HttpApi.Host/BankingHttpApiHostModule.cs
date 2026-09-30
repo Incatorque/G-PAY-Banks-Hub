@@ -128,7 +128,6 @@ public class BankingHttpApiHostModule : AbpModule
             options.EnableDeepLinking();
             options.EnableFilter();
             options.DefaultModelsExpandDepth(2);
-            options.HeadContent = BankingSwaggerDescription.Styles;
         });
         app.UseConfiguredEndpoints();
     }

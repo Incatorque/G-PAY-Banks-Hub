@@ -44,6 +44,16 @@ public sealed class InstantPaymentResponse
     public string? TransactionReference { get; init; }
 
     /// <summary>
+    /// Absa Correlations type 1 (SourceStatementRef).
+    /// </summary>
+    public string? SourceStatementRef { get; init; }
+
+    /// <summary>
+    /// Absa Correlations type 2 (TargetStatementRef).
+    /// </summary>
+    public string? TargetStatementRef { get; init; }
+
+    /// <summary>
     /// Raw Absa Status code from the payment response.
     /// </summary>
     public int? BankStatusCode { get; init; }

@@ -22,7 +22,7 @@ internal static class BankingSwaggerExtensions
             {
                 Title = "GPay Banking API",
                 Version = "v1",
-                Description = BankingSwaggerDescription.Build(requireGpayAuth),
+                Description = "Account verification, instant payments, transaction history, callback registration, and bank payment callbacks.",
                 Contact = new OpenApiContact
                 {
                     Name = "GPay Banking",
@@ -40,8 +40,7 @@ internal static class BankingSwaggerExtensions
                 {
                     Name = "Authorization",
                     Description =
-                        "Paste your JWT only (Swagger adds the <code>Bearer</code> prefix). " +
-                        "Audience must be <code>GPay</code>.",
+                        "Paste your JWT only (Swagger adds the Bearer prefix). Audience must be GPay.",
                     In = ParameterLocation.Header,
                     Type = SecuritySchemeType.Http,
                     Scheme = "bearer",

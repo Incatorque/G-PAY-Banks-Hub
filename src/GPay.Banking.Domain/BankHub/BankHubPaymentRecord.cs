@@ -22,4 +22,7 @@ public class BankHubPaymentRecord : AuditedAggregateRoot<Guid>
     public string? RequestJson { get; set; }
     public string? ResponseJson { get; set; }
     public string? ErrorMessage { get; set; }
+
+    /// <summary>UTC time of the last Absa status poll for this payment.</summary>
+    public DateTime? LastStatusCheckTime { get; set; }
 }

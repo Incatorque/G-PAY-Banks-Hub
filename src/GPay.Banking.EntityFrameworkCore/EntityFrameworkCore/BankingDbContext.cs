@@ -12,6 +12,7 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
     public DbSet<BankHubAvsBatch> BankHubAvsBatches { get; set; } = null!;
     public DbSet<BankHubAvsRecord> BankHubAvsRecords { get; set; } = null!;
     public DbSet<BankHubPaymentRecord> BankHubPaymentRecords { get; set; } = null!;
+    public DbSet<BankHubApiCall> BankHubApiCalls { get; set; } = null!;
 
     public BankingDbContext(DbContextOptions<BankingDbContext> options)
         : base(options)
@@ -61,6 +62,19 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.HasIndex(x => x.CorrelationId);
             b.HasIndex(x => x.TransactionReference);
             b.HasIndex(x => x.ApiReference);
+            b.HasIndex(x => x.Status);
+        });
+
+        builder.Entity<BankHubApiCall>(b =>
+        {
+            b.ToTable("AppBankHubApiCalls");
+            b.ConfigureByConvention();
+            b.Property(x => x.BankCode).IsRequired().HasMaxLength(32);
+            b.Property(x => x.Direction).IsRequired().HasMaxLength(16);
+            b.Property(x => x.Operation).IsRequired().HasMaxLength(64);
+            b.HasIndex(x => x.CreationTime);
+            b.HasIndex(x => x.CorrelationId);
+            b.HasIndex(x => x.Operation);
         });
     }
 }
