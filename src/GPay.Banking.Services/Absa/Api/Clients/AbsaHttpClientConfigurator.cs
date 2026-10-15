@@ -31,7 +31,6 @@ public static class AbsaHttpClientConfigurator
 
                 handler.ClientCertificates.Add(cert);
             }
-
             return handler;
         });
 

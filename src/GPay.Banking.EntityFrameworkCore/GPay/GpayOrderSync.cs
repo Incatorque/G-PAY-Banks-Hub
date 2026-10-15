@@ -15,15 +15,18 @@ public sealed class GpayOrderSync : IGpayOrderSync
     private readonly IDbContextFactory<GPayLegacyDbContext> _contexts;
     private readonly IConfiguration _configuration;
     private readonly ILogger<GpayOrderSync> _logger;
+    private readonly IGpayPaymentNotifier _notifier;
 
     public GpayOrderSync(
         IDbContextFactory<GPayLegacyDbContext> contexts,
         IConfiguration configuration,
-        ILogger<GpayOrderSync> logger)
+        ILogger<GpayOrderSync> logger,
+        IGpayPaymentNotifier notifier)
     {
         _contexts = contexts;
         _configuration = configuration;
         _logger = logger;
+        _notifier = notifier;
     }
 
     public async Task ApplyPaymentAsync(GpayPaymentSyncRequest request, CancellationToken cancellationToken = default)
@@ -60,8 +63,12 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 return;
             }
 
+            var priorStatus = order.FkOrderStatusId;
             var note = Trim(request.Note, 500) ?? request.HubStatus;
             await SetStatusAsync(db, order, statusId.Value, note, cancellationToken);
+            var completedTransition = statusId == GpayOrderStatusIds.Completed && priorStatus != GpayOrderStatusIds.Completed;
+            var failedTransition = statusId == GpayOrderStatusIds.Error && priorStatus != GpayOrderStatusIds.Error;
+            var reconciledTransition = false;
 
             if (statusId == GpayOrderStatusIds.Completed)
             {
@@ -70,6 +77,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 {
                     order.FkEntityBankStatementId = statementId;
                     await SetStatusAsync(db, order, GpayOrderStatusIds.Reconciled, "Statement linked", cancellationToken);
+                    reconciledTransition = priorStatus != GpayOrderStatusIds.Reconciled;
                 }
             }
 
@@ -78,6 +86,22 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 "GPay order {OrderNumber} updated to {Status}",
                 order.OrderNumber,
                 request.HubStatus);
+
+            // Notify only after the GPay transaction commits. Repeated callback deliveries and
+            // status polls must not resend the same lifecycle email.
+            if (failedTransition)
+            {
+                await _notifier.NotifyFailureAsync(order.OrderNumber, request.Reference, note, cancellationToken);
+            }
+            else if (completedTransition)
+            {
+                await _notifier.NotifyOrderCompletedAsync(order.OrderNumber, request.Reference, request.HubStatus, note, cancellationToken);
+            }
+
+            if (reconciledTransition)
+            {
+                await _notifier.NotifyOrderReconciledAsync(order.OrderNumber, request.Reference, cancellationToken);
+            }
         }
         catch (Exception ex)
         {

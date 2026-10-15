@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
+using System.IO;
 
 namespace GPay.Banking;
 
@@ -20,6 +21,23 @@ public class Program
 
         try
         {
+            var logDirectory = Path.Combine(AppContext.BaseDirectory, "Logs");
+            Directory.CreateDirectory(logDirectory);
+            await Log.CloseAndFlushAsync();
+
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .Enrich.FromLogContext()
+                .WriteTo.Async(c => c.Console())
+                .WriteTo.Async(c => c.File(
+                    Path.Combine(logDirectory, "BankHub-.log"),
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 31,
+                    shared: true,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}"))
+                .CreateLogger();
+
             var builder = WebApplication.CreateBuilder(args);
             builder.Host.AddAppSettingsSecretsJson()
                 .UseAutofac()
