@@ -133,9 +133,14 @@ public sealed class AbsaCapiOptions
     public string? ClientCertificatePassword { get; set; }
 
     /// <summary>
-    /// Certificate subject contains match used when loading from the Windows cert store (optional).
+    /// Certificate thumbprint used to select the certificate from the configured Windows cert store (optional).
     /// </summary>
     public string? ClientCertificateSubjectContains { get; set; }
+
+    /// <summary>
+    /// Windows certificate store location used for the Absa client certificate. Defaults to LocalMachine for IIS deployments.
+    /// </summary>
+    public string ClientCertificateStoreLocation { get; set; } = "LocalMachine";
 
     /// <summary>
     /// When true, omit X-Signature (local/dev only). Live Absa requires signature per MIG §3.

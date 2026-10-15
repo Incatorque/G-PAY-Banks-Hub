@@ -68,7 +68,8 @@ public sealed class AbsaRequestSigner : IAbsaRequestSigner
         var certificate = _certificate.Value
             ?? throw new InvalidOperationException(
                 "Unable to load Absa client certificate for X-Signature. " +
-                "Set AbsaCapi:ClientCertificatePath (or store subject) or SkipRequestSignature=true for local-only testing.");
+                "Set AbsaCapi:ClientCertificateSubjectContains to the certificate thumbprint and configure its store, " +
+                "or set AbsaCapi:ClientCertificatePath as a P12 fallback. SkipRequestSignature is for local-only testing.");
 
         using var rsa = certificate.GetRSAPrivateKey()
             ?? throw new InvalidOperationException("Absa client certificate does not contain an RSA private key.");
@@ -77,37 +78,5 @@ public sealed class AbsaRequestSigner : IAbsaRequestSigner
         return Convert.ToBase64String(signed);
     }
 
-    private X509Certificate2? LoadCertificate()
-    {
-        if (!string.IsNullOrWhiteSpace(_options.ClientCertificatePath) &&
-            File.Exists(_options.ClientCertificatePath))
-        {
-            return string.IsNullOrWhiteSpace(_options.ClientCertificatePassword)
-                ? X509CertificateLoader.LoadPkcs12FromFile(_options.ClientCertificatePath, null)
-                : X509CertificateLoader.LoadPkcs12FromFile(
-                    _options.ClientCertificatePath,
-                    _options.ClientCertificatePassword);
-        }
-
-        if (string.IsNullOrWhiteSpace(_options.ClientCertificateSubjectContains) &&
-            string.IsNullOrWhiteSpace(_options.ClientApiKey))
-        {
-            return null;
-        }
-
-        var match = _options.ClientCertificateSubjectContains ?? _options.ClientApiKey;
-        try
-        {
-            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
-            return store.Certificates
-                .Cast<X509Certificate2>()
-                .FirstOrDefault(c => c.Subject.Contains(match, StringComparison.OrdinalIgnoreCase));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to load Absa certificate from CurrentUser store.");
-            return null;
-        }
-    }
+    private X509Certificate2? LoadCertificate() => AbsaClientCertificateLoader.Load(_options, _logger);
 }

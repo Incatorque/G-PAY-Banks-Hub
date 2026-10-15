@@ -20,15 +20,10 @@ public static class AbsaHttpClientConfigurator
             var options = sp.GetRequiredService<IOptions<AbsaCapiOptions>>().Value;
             var handler = new HttpClientHandler();
 
-            if (!string.IsNullOrWhiteSpace(options.ClientCertificatePath) &&
-                File.Exists(options.ClientCertificatePath))
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AbsaHttpClientConfigurator));
+            var cert = AbsaClientCertificateLoader.Load(options, logger);
+            if (cert is not null)
             {
-                var cert = string.IsNullOrWhiteSpace(options.ClientCertificatePassword)
-                    ? X509CertificateLoader.LoadPkcs12FromFile(options.ClientCertificatePath, null)
-                    : X509CertificateLoader.LoadPkcs12FromFile(
-                        options.ClientCertificatePath,
-                        options.ClientCertificatePassword);
-
                 handler.ClientCertificates.Add(cert);
             }
             return handler;
