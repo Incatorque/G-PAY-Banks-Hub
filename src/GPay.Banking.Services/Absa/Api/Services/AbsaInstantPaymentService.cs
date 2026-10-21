@@ -35,15 +35,14 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
     }
 
     /// <inheritdoc />
-    public async Task<ApiResult<InstantPaymentResponse>> PayAsync(
-        InstantPaymentRequest request,
-        string correlationId,
-        CancellationToken cancellationToken = default)
+    public async Task<ApiResult<InstantPaymentResponse>> PayAsync(InstantPaymentRequest request, string correlationId, CancellationToken cancellationToken = default)
     {
         var validationError = ValidatePay(request);
+        
         if (validationError is not null)
         {
             LogPayOutcome(request, null, false, validationError.Code, validationError.Message, correlationId);
+
             return ApiResult<InstantPaymentResponse>.Fail(validationError, correlationId);
         }
 
@@ -52,12 +51,11 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
             var absaRequest = _mapper.ToAbsaInitiateRequest(request, correlationId);
 
             _logger.LogInformation(
-                "Absa payment initiate start Amount={Amount} Rail={Rail} TxRef={TxRef} CorrelationId={CorrelationId} Simulator={Simulator}",
+                "Absa payment initiate start Amount={Amount} Rail={Rail} TxRef={TxRef} CorrelationId={CorrelationId}",
                 absaRequest.Economics.Amount,
                 absaRequest.Economics.Indicator,
                 absaRequest.Economics.TransactionRef,
-                correlationId,
-                _capiClient.UseSimulator);
+                correlationId);
 
             var absaResponse = await _capiClient.InitiatePaymentAsync(absaRequest, cancellationToken);
 
@@ -109,9 +107,8 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
             var absaRequest = _mapper.ToAbsaStatusRequest(request);
 
             _logger.LogInformation(
-                "Absa payment status start CorrelationId={CorrelationId} Simulator={Simulator}",
-                correlationId,
-                _capiClient.UseSimulator);
+                "Absa payment status start CorrelationId={CorrelationId}",
+                correlationId);
 
             var absaResponse = await _capiClient.GetPaymentStatusAsync(absaRequest, cancellationToken);
 
@@ -190,13 +187,7 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
         return null;
     }
 
-    private void LogPayOutcome(
-        InstantPaymentRequest request,
-        object? response,
-        bool success,
-        string? code,
-        string? message,
-        string correlationId)
+    private void LogPayOutcome(InstantPaymentRequest request, object? response, bool success, string? code, string? message, string correlationId)
     {
         _logger.LogInformation(
             "Absa payment initiate completed Success={Success} Code={Code} Message={Message} CorrelationId={CorrelationId} Request={Request} Response={Response}",
@@ -208,13 +199,7 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
             response is null ? null : JsonSerializer.Serialize(response, JsonOptions));
     }
 
-    private void LogStatusOutcome(
-        PaymentStatusRequest request,
-        object? response,
-        bool success,
-        string? code,
-        string? message,
-        string correlationId)
+    private void LogStatusOutcome(PaymentStatusRequest request, object? response, bool success, string? code, string? message, string correlationId)
     {
         _logger.LogInformation(
             "Absa payment status completed Success={Success} Code={Code} Message={Message} CorrelationId={CorrelationId} Request={Request} Response={Response}",
@@ -226,8 +211,3 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
             response is null ? null : JsonSerializer.Serialize(response, JsonOptions));
     }
 }
-
-
-
-
-

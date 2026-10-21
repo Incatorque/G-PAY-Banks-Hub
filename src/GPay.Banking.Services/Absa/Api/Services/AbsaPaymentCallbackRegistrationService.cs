@@ -55,10 +55,9 @@ public sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackReg
         try
         {
             _logger.LogInformation(
-                "Absa payment callback unregister Uri={Uri} CorrelationId={CorrelationId} Simulator={Simulator}",
+                "Absa payment callback unregister Uri={Uri} CorrelationId={CorrelationId}",
                 request.Uri,
-                correlationId,
-                _capiClient.UseSimulator);
+                correlationId);
 
             var absaResponse = await _capiClient.UnregisterPaymentCallbackAsync(
                 new AbsaPaymentCallbackUnregisterRequest { Uri = request.Uri.Trim() },
@@ -89,10 +88,9 @@ public sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackReg
         try
         {
             _logger.LogInformation(
-                "Absa payment callback register Uri={Uri} CorrelationId={CorrelationId} Simulator={Simulator}",
+                "Absa payment callback register Uri={Uri} CorrelationId={CorrelationId}",
                 request.Uri,
-                correlationId,
-                _capiClient.UseSimulator);
+                correlationId);
 
             var absaResponse = await _capiClient.RegisterPaymentCallbackAsync(
                 new AbsaPaymentCallbackRegisterRequest

@@ -26,16 +26,16 @@ internal static class GpayOrderStatusIds
 
     /// <summary>
     /// Maps a hub payment label onto the host-to-host status.
-    /// Submitted matches the file-sent step (Pending Bank Transfer).
+    /// Submitted matches the initial Bank Hub handoff step (Submitted to Queue).
     /// Completed matches an accepted payment; the statement link then moves it to Reconciled.
     /// </summary>
     public static Guid? FromHubStatus(string? hubStatus) =>
-        hubStatus switch
+        hubStatus?.Trim().ToUpperInvariant() switch
         {
-            "Submitted" or "Queued" => PendingBankTransfer,
-            "Pending" or "Saved" => BankTransferProcessing,
-            "Completed" or "Accepted" => Completed,
-            "Failed" or "Error" or "Duplicate" or "Rejected" => Error,
+            "SUBMITTED" or "QUEUED" => SubmittedToQueue,
+            "PENDING" or "SAVED" or "PROCESSING" => BankTransferProcessing,
+            "COMPLETED" or "ACCEPTED" => Completed,
+            "FAILED" or "ERROR" or "DUPLICATE" or "REJECTED" => Error,
             _ => null
         };
 }

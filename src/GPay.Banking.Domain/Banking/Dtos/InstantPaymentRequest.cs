@@ -8,6 +8,9 @@ using GPay.Banking;
 /// </summary>
 public sealed class InstantPaymentRequest
 {
+    /// <summary>Internal GPay order identifier used to associate API audit rows.</summary>
+    public Guid? GpayOrderId { get; init; }
+
     /// <summary>
     /// Debit account number.
     /// </summary>

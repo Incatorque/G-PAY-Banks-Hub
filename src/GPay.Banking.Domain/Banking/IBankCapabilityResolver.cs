@@ -1,7 +1,5 @@
 using GPay.Banking.Domain.Dtos;
 
-using GPay.Banking;
-
 namespace GPay.Banking.Domain;
 
 /// <summary>
@@ -17,6 +15,3 @@ public interface IBankCapabilityResolver
     IPaymentCallbackService GetPaymentCallback(BankCode bank);
     IPaymentCallbackRegistrationService GetPaymentCallbackRegistration(BankCode bank);
 }
-
-
-

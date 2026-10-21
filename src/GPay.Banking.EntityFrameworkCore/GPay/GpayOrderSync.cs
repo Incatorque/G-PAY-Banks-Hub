@@ -1,277 +1,298 @@
 using GPay.Banking.Domain;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace GPay.Banking.EntityFrameworkCore.GPay;
 
 /// <summary>
-/// Applies Absa outcomes to the GPay database the way Absa host-to-host does:
-/// an open order becomes Pending Bank Transfer, Completed, or Error, with an <c>OrderHistory</c> row.
-/// A completed debit inserts <c>EntityBankStatement</c> and moves the order to Reconciled.
+/// Reads PayShap orders from the shared GPay database through EF Core LINQ.
 /// </summary>
 public sealed class GpayOrderSync : IGpayOrderSync
 {
-    private readonly IDbContextFactory<GPayLegacyDbContext> _contexts;
-    private readonly IConfiguration _configuration;
+    private readonly BankingDbContext _dbContext;
     private readonly ILogger<GpayOrderSync> _logger;
-    private readonly IGpayPaymentNotifier _notifier;
 
     public GpayOrderSync(
-        IDbContextFactory<GPayLegacyDbContext> contexts,
-        IConfiguration configuration,
-        ILogger<GpayOrderSync> logger,
-        IGpayPaymentNotifier notifier)
+        BankingDbContext dbContext,
+        ILogger<GpayOrderSync> logger)
     {
-        _contexts = contexts;
-        _configuration = configuration;
+        _dbContext = dbContext;
         _logger = logger;
-        _notifier = notifier;
     }
 
-    public async Task ApplyPaymentAsync(GpayPaymentSyncRequest request, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<GpayPaymentOrderCandidate>> GetEligiblePaymentOrdersAsync(
+        int batchSize,
+        IReadOnlyCollection<BankCode> enabledBanks,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_configuration.GetConnectionString("GPay")))
+        if (enabledBanks.Count == 0)
         {
-            return;
+            return [];
         }
 
-        var statusId = GpayOrderStatusIds.FromHubStatus(request.HubStatus);
-        if (statusId is null)
-        {
-            return;
-        }
+        var includeAbsa = enabledBanks.Contains(BankCode.Absa);
 
-        try
-        {
-            await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
-            var order = await FindOrderAsync(db, request, cancellationToken);
-            if (order is null)
+        var includeFnb = enabledBanks.Contains(BankCode.Fnb);
+
+        var includeNedbank = enabledBanks.Contains(BankCode.Nedbank);
+
+        var prsOrders = _dbContext.Set<GpayOrderRow>()
+            .AsNoTracking()
+            .Where(order =>
+                order.StatusId == GpayOrderStatusIds.Prs &&
+                order.Active == true);
+
+        var ordersFromEnabledBanks =
+            from order in prsOrders
+            join payer in _dbContext.Set<GpayAccountRow>().AsNoTracking()
+                on order.FromAccountId equals (Guid?)payer.Id
+            join payerBank in _dbContext.Set<GpayBankRow>().AsNoTracking()
+                on payer.BankId equals payerBank.Id
+            where payer.Active == true &&
+                  payerBank.Active == true &&
+                  order.FromAccountId != order.ToAccountId &&
+                  ((includeAbsa && payerBank.Name.ToUpper().Contains("ABSA"))
+                  || (includeFnb &&
+                      (payerBank.Name.ToUpper().Contains("FNB") ||
+                       payerBank.Name.ToUpper().Contains("FIRST NATIONAL")))
+                  || (includeNedbank && payerBank.Name.ToUpper().Contains("NEDBANK")))
+            select new
             {
-                _logger.LogInformation(
-                    "GPay order not found for payment Reference={Reference} TxRef={TxRef}",
-                    request.Reference,
-                    request.TransactionReference);
-                return;
-            }
+                Order = order,
+                Payer = payer,
+                Bank = payerBank
+            };
 
-            if (!GpayOrderStatusIds.IsOpen(order.FkOrderStatusId))
+        var ordersWithPayeeAccounts =
+            from candidate in ordersFromEnabledBanks
+            join payee in _dbContext.Set<GpayAccountRow>().AsNoTracking()
+                on candidate.Order.ToAccountId equals (Guid?)payee.Id
+            select new
             {
-                _logger.LogInformation(
-                    "GPay order {OrderNumber} is not in PRS or an in-flight bank status; left unchanged",
-                    order.OrderNumber);
-                return;
-            }
+                candidate.Order,
+                candidate.Payer,
+                candidate.Bank,
+                Payee = payee
+            };
 
-            var priorStatus = order.FkOrderStatusId;
-            var note = Trim(request.Note, 500) ?? request.HubStatus;
-            await SetStatusAsync(db, order, statusId.Value, note, cancellationToken);
-            var completedTransition = statusId == GpayOrderStatusIds.Completed && priorStatus != GpayOrderStatusIds.Completed;
-            var failedTransition = statusId == GpayOrderStatusIds.Error && priorStatus != GpayOrderStatusIds.Error;
-            var reconciledTransition = false;
-
-            if (statusId == GpayOrderStatusIds.Completed)
+        var ordersWithAmount =
+            from candidate in ordersWithPayeeAccounts
+            let amount = _dbContext.Set<GpayOrderItemRow>()
+                .Where(item => item.OrderId == candidate.Order.Id)
+                .Sum(item => (item.Price ?? 0m) * (item.Quantity ?? 0m))
+            where amount > 0m
+            select new
             {
-                var statementId = await InsertStatementAsync(db, order, request, cancellationToken);
-                if (statementId is not null)
-                {
-                    order.FkEntityBankStatementId = statementId;
-                    await SetStatusAsync(db, order, GpayOrderStatusIds.Reconciled, "Statement linked", cancellationToken);
-                    reconciledTransition = priorStatus != GpayOrderStatusIds.Reconciled;
-                }
-            }
+                Candidate = candidate,
+                Amount = amount
+            };
 
-            await db.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation(
-                "GPay order {OrderNumber} updated to {Status}",
-                order.OrderNumber,
-                request.HubStatus);
-
-            // Notify only after the GPay transaction commits. Repeated callback deliveries and
-            // status polls must not resend the same lifecycle email.
-            if (failedTransition)
+        var query =
+            from candidate in ordersWithAmount
+            orderby candidate.Candidate.Order.OrderDate,
+                candidate.Candidate.Order.OrderNumber
+            select new
             {
-                await _notifier.NotifyFailureAsync(order.OrderNumber, request.Reference, note, cancellationToken);
-            }
-            else if (completedTransition)
+                OrderId = candidate.Candidate.Order.Id,
+                candidate.Candidate.Order.OrderNumber,
+                candidate.Candidate.Order.ReferenceNumber,
+                BankName = candidate.Candidate.Bank.Name,
+                candidate.Amount,
+                FromAccountNumber = candidate.Candidate.Payer.AccountNumber,
+                ToAccountNumber = candidate.Candidate.Payee.AccountNumber,
+                ToBranchCode = candidate.Candidate.Payee.BranchCode,
+                BeneficiaryName = _dbContext.Set<GpayEntityRow>()
+                    .Where(entity => entity.Id == candidate.Candidate.Payee.EntityId)
+                    .Select(entity => entity.Name)
+                    .FirstOrDefault()
+            };
+
+        var rows = await query
+            .Take(Math.Max(1, batchSize))
+            .ToListAsync(cancellationToken);
+        var candidates = rows
+            .Select(row => new GpayPaymentOrderCandidate
             {
-                await _notifier.NotifyOrderCompletedAsync(order.OrderNumber, request.Reference, request.HubStatus, note, cancellationToken);
-            }
-
-            if (reconciledTransition)
-            {
-                await _notifier.NotifyOrderReconciledAsync(order.OrderNumber, request.Reference, cancellationToken);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "GPay order sync failed for Reference={Reference}", request.Reference);
-        }
-    }
-
-    private static async Task SetStatusAsync(
-        GPayLegacyDbContext db,
-        GpayOrder order,
-        Guid statusId,
-        string? note,
-        CancellationToken cancellationToken)
-    {
-        if (order.FkOrderStatusId == statusId && order.FkEntityBankStatementId is null)
-        {
-            return;
-        }
-
-        order.FkOrderStatusId = statusId;
-        db.OrderHistories.Add(new GpayOrderHistory
-        {
-            Id = Guid.NewGuid(),
-            FkOrderId = order.Id,
-            FkOrderStatusId = statusId,
-            Date = DateTime.Now,
-            Note = note,
-            FkHistoryCategoryId = GpayOrderStatusIds.StatusChangeCategory,
-            Active = true
-        });
-    }
-
-    private static async Task<Guid?> InsertStatementAsync(
-        GPayLegacyDbContext db,
-        GpayOrder order,
-        GpayPaymentSyncRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (order.FkFromAccountId is null || order.FkEntityBankStatementId is not null || request.Amount == 0)
-        {
-            return null;
-        }
-
-        var eventNumber = Trim(request.TransactionReference, 50);
-        if (!string.IsNullOrWhiteSpace(eventNumber))
-        {
-            var already = await db.EntityBankStatements.AnyAsync(
-                x => x.FkAccountId == order.FkFromAccountId && x.EventNumber == eventNumber,
-                cancellationToken);
-            if (already)
-            {
-                return null;
-            }
-        }
-
-        var codeId = await db.TransactionCodes
-            .Where(x => x.Active != false && x.Name == "Requisition Payment")
-            .Select(x => (int?)x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (codeId is null or 0)
-        {
-            codeId = await db.TransactionCodes
-                .Where(x => x.Active != false && x.ApplyOnDebit == true)
-                .Select(x => (int?)x.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
-        if (codeId is null or 0)
-        {
-            return null;
-        }
-
-        var reference = Trim(First(order.ReferenceNumber, request.Reference, request.SourceStatementRef), 50);
-        var statement = new GpayEntityBankStatement
-        {
-            Id = Guid.NewGuid(),
-            FkAccountId = order.FkFromAccountId,
-            FkEntityId = order.FkClientId,
-            Description = Trim(First(request.SourceStatementRef, request.TargetStatementRef, "ABSA CAPI"), 250),
-            ReferenceNumber = reference,
-            TransactionDate = DateTime.Now,
-            Amount = -Math.Abs(request.Amount),
-            SyncDate = DateTime.Now,
-            Reconciled = true,
-            IsIntra = false,
-            IsProcessed = true,
-            Active = true,
-            EventNumber = eventNumber,
-            TransactionCodeId = codeId.Value,
-            SupplierBankReference = Trim(order.SupplierBankReference, 50)
-        };
-
-        db.EntityBankStatements.Add(statement);
-        return statement.Id;
-    }
-
-    private static async Task<GpayOrder?> FindOrderAsync(
-        GPayLegacyDbContext db,
-        GpayPaymentSyncRequest request,
-        CancellationToken cancellationToken)
-    {
-        var keys = new[]
-            {
-                request.Reference,
-                request.TransactionReference,
-                request.SourceStatementRef,
-                request.TargetStatementRef
-            }
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+                OrderId = row.OrderId,
+                OrderNumber = row.OrderNumber.ToString(),
+                Bank = NormalizeBank(row.BankName),
+                Reference = string.IsNullOrWhiteSpace(row.ReferenceNumber)
+                    ? row.OrderNumber.ToString()
+                    : row.ReferenceNumber,
+                Amount = row.Amount,
+                FromAccountNumber = row.FromAccountNumber,
+                ToAccountNumber = row.ToAccountNumber,
+                ToBranchCode = row.ToBranchCode,
+                BeneficiaryName = row.BeneficiaryName
+            })
             .ToList();
 
-        foreach (var key in keys)
+        var eligibleCandidates = new List<GpayPaymentOrderCandidate>(candidates.Count);
+        foreach (var order in candidates)
         {
-            var number = TryOrderNumber(key);
-            if (number is null)
+            var currentOrderStatus = await GetOrderStatusAsync(order.OrderId, cancellationToken);
+            if (!string.Equals(currentOrderStatus, "PRS", StringComparison.OrdinalIgnoreCase))
             {
+                _logger.LogInformation(
+                    "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not PRS.",
+                    order.OrderNumber,
+                    currentOrderStatus ?? "<missing>");
+
                 continue;
             }
 
-            var byNumber = await db.Orders.FirstOrDefaultAsync(
-                x => x.OrderNumber == number && x.Active != false,
-                cancellationToken);
-            if (byNumber is not null)
+            eligibleCandidates.Add(order);
+        }
+
+        candidates = eligibleCandidates;
+
+        _logger.LogInformation(
+            "GPay PRS poll found {OrderCount} eligible order(s) across enabled banks.",
+            candidates.Count);
+
+        if (candidates.Count == 0)
+        {
+            var prsOrderCount = await prsOrders.CountAsync(cancellationToken);
+
+            var enabledBankOrderCount = await ordersFromEnabledBanks.CountAsync(cancellationToken);
+
+            var orderWithPayeeCount = await ordersWithPayeeAccounts.CountAsync(cancellationToken);
+
+            var orderWithAmountCount = await ordersWithAmount.CountAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "GPay PRS poll returned no eligible orders. ActivePRS={PrsCount}, EnabledBank={BankCount}, WithPayee={PayeeCount}, WithPositiveAmount={AmountCount}. EnabledBanks={EnabledBanks}.",
+                prsOrderCount,
+                enabledBankOrderCount,
+                orderWithPayeeCount,
+                orderWithAmountCount,
+                string.Join(",", enabledBanks));
+        }
+
+        return candidates;
+    }
+
+    public Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        var query =
+            from order in _dbContext.Set<GpayOrderRow>().AsNoTracking()
+            join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+                on order.StatusId equals status.Id
+            where order.Id == orderId
+            select status.Name;
+
+        return query.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private static string NormalizeBank(string bankName)
+    {
+        var normalized = bankName.ToUpperInvariant();
+
+        if (normalized.Contains("ABSA"))
+        {
+            return BankCode.Absa.ToString();
+        }
+
+        if (normalized.Contains("FNB") || normalized.Contains("FIRST NATIONAL"))
+        {
+            return BankCode.Fnb.ToString();
+        }
+
+        if (normalized.Contains("NEDBANK"))
+        {
+            return BankCode.Nedbank.ToString();
+        }
+
+        throw new InvalidOperationException($"Cannot map GPay bank name '{bankName}' to a Bank Hub adapter.");
+    }
+
+    public async Task ApplyPaymentAsync(
+        GpayPaymentSyncRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var targetStatus = GpayOrderStatusIds.FromHubStatus(request.HubStatus);
+        if (!targetStatus.HasValue)
+        {
+            _logger.LogDebug("No GPay order status transition for Bank Hub status {Status}.", request.HubStatus);
+            return;
+        }
+
+        var query = _dbContext.Set<GpayOrderRow>().AsQueryable();
+        GpayOrderRow? order = null;
+        if (request.GpayOrderId.HasValue)
+        {
+            order = await query.FirstOrDefaultAsync(x => x.Id == request.GpayOrderId.Value, cancellationToken);
+        }
+
+        if (order is null && !string.IsNullOrWhiteSpace(request.Reference))
+        {
+            var referenceMatches = await query
+                .Where(x => x.ReferenceNumber == request.Reference)
+                .Take(2)
+                .ToListAsync(cancellationToken);
+            if (referenceMatches.Count == 1)
             {
-                return byNumber;
+                order = referenceMatches[0];
+            }
+            else if (referenceMatches.Count > 1)
+            {
+                _logger.LogWarning(
+                    "Skipped GPay status sync because reference {Reference} matches multiple orders. Pass the GPay order id to resolve it safely.",
+                    request.Reference);
+                return;
             }
         }
 
-        var shortKeys = keys.Where(x => x.Length <= 20).ToList();
-        var mediumKeys = keys.Where(x => x.Length <= 50).ToList();
-        if (shortKeys.Count == 0 && mediumKeys.Count == 0)
+        if (order is null)
         {
-            return null;
+            _logger.LogWarning(
+                "Could not find GPay order to sync Bank Hub status. OrderId={OrderId}, Reference={Reference}, Status={Status}",
+                request.GpayOrderId,
+                request.Reference,
+                request.HubStatus);
+            return;
         }
 
-        var matches = await db.Orders
-            .Where(x => x.Active != false &&
-                        ((shortKeys.Count > 0 && x.ReferenceNumber != null && shortKeys.Contains(x.ReferenceNumber)) ||
-                         (mediumKeys.Count > 0 && x.SupplierBankReference != null && mediumKeys.Contains(x.SupplierBankReference)) ||
-                         (mediumKeys.Count > 0 && x.ExtRef != null && mediumKeys.Contains(x.ExtRef))))
-            .Take(2)
-            .ToListAsync(cancellationToken);
-
-        return matches.Count == 1 ? matches[0] : null;
-    }
-
-    private static int? TryOrderNumber(string value)
-    {
-        var text = value.Trim();
-        if (text.StartsWith("GPAY", StringComparison.OrdinalIgnoreCase))
+        if (order.StatusId == targetStatus.Value)
         {
-            text = text[4..].Trim();
+            return;
         }
 
-        var digits = new string(text.TakeWhile(char.IsDigit).ToArray());
-        return int.TryParse(digits, out var number) && number > 0 ? number : null;
-    }
-
-    private static string? First(params string?[] values) =>
-        values.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))?.Trim();
-
-    private static string? Trim(string? value, int max)
-    {
-        if (string.IsNullOrWhiteSpace(value))
+        if (!GpayOrderStatusIds.IsOpen(order.StatusId))
         {
-            return null;
+            _logger.LogWarning(
+                "Ignored Bank Hub status {HubStatus} for GPay order {OrderNumber}; its current status {CurrentStatus} is already closed.",
+                request.HubStatus,
+                order.OrderNumber,
+                order.StatusId);
+            return;
         }
 
-        var text = value.Trim();
-        return text.Length <= max ? text : text[..max];
+        var previousStatus = order.StatusId;
+        order.StatusId = targetStatus.Value;
+
+        var historyNote = string.IsNullOrWhiteSpace(request.Note)
+            ? $"Bank Hub payment status: {request.HubStatus}"
+            : request.Note;
+        var history = new GpayOrderHistoryRow
+        {
+            Id = Guid.NewGuid(),
+            OrderId = order.Id,
+            StatusId = targetStatus.Value,
+            HistoryCategoryId = GpayOrderStatusIds.StatusChangeCategory,
+            Date = DateTime.Now,
+            Note = historyNote.Length <= 200 ? historyNote : historyNote[..200],
+            UserId = order.UserId
+        };
+        _dbContext.Set<GpayOrderHistoryRow>().Add(history);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Updated GPay order {OrderNumber} ({OrderId}) status from {PreviousStatus} to {NewStatus} after Bank Hub payment status {HubStatus}.",
+            order.OrderNumber,
+            order.Id,
+            previousStatus,
+            targetStatus.Value,
+            request.HubStatus);
     }
 }

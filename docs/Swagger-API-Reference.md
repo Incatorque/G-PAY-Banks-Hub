@@ -55,7 +55,7 @@ ABP conventional controllers map AppServices to:
 
 | Method | Path | Permission | Description |
 |--------|------|------------|-------------|
-| `POST` | `/api/app/instant-payment/initiate` | Initiate | Submit PayShap/RTC payment; persists `BankHubPaymentRecord`. |
+| `POST` | `/api/app/instant-payment/initiate` | Initiate | Submit PayShap/RTC payment; audits the bank API call and updates the linked GPay order. |
 | `POST` | `/api/app/instant-payment/get-status` | View | Live bank status; updates local record when found. |
 | `GET` | `/api/app/instant-payment/{id}` | View | Local record only (no bank call). |
 

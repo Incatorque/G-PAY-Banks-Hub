@@ -1,7 +1,7 @@
 namespace GPay.Banking.Domain;
 
 /// <summary>
-/// Persists every Absa CAPI call and inbound payment callback.
+/// Persists bank API calls and inbound payment callbacks.
 /// </summary>
 public interface IBankApiCallAuditor
 {
@@ -16,6 +16,8 @@ public interface IBankApiCallAuditor
 /// </summary>
 public sealed class BankApiCallAuditEntry
 {
+    public Guid? GpayOrderId { get; init; }
+
     public string BankCode { get; init; } = "Absa";
 
     /// <summary><c>Outbound</c> or <c>Inbound</c>.</summary>

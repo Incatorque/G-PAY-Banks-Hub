@@ -20,7 +20,9 @@ public sealed class AbsaRequestSigner : IAbsaRequestSigner
     /// <summary>
     /// Initializes a new instance of the <see cref="AbsaRequestSigner"/> class.
     /// </summary>
-    public AbsaRequestSigner(IOptions<AbsaCapiOptions> options, ILogger<AbsaRequestSigner> logger)
+    public AbsaRequestSigner(
+        IOptions<AbsaCapiOptions> options,
+        ILogger<AbsaRequestSigner> logger)
     {
         _options = options.Value;
         _logger = logger;

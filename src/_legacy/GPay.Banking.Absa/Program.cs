@@ -81,7 +81,6 @@ app.MapGet("/health", (IOptions<AbsaCapiOptions> options) =>
         service = "Absa",
         status = "Healthy",
         capability = "AVS,Payments",
-        mode = o.UseSimulator ? "simulator" : "live",
         baseUrl = o.BaseUrl,
         configured = IsLiveCredential(o.Username) &&
                      IsLiveCredential(o.Password) &&

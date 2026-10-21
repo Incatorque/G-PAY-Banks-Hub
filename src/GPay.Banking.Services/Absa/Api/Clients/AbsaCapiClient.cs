@@ -93,24 +93,15 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
     }
 
     /// <inheritdoc />
-    public bool UseSimulator => _options.UseSimulator;
-
-    /// <inheritdoc />
     public async Task<AbsaAvsResponse> VerifyAccountAsync(
         AbsaAvsRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (UseSimulator)
-        {
-            _logger.LogInformation("Absa AVS simulator used for CorrelationId={CorrelationId}", request.CorrelationId);
-            return Simulate(request);
-        }
-
         if (!IsConfigured)
         {
             throw new InvalidOperationException(
                 $"Absa CAPI is not configured for live AVS. Missing or placeholder: {DescribeMissingConfiguration()}. " +
-                "Set values in appsettings.json or appsettings.Local.json (Local overrides json). Placeholders starting with SET_ are ignored.");
+                "Set values in appsettings.Absa.json, appsettings.Local.json, user-secrets, or GPAY_AbsaCapi__* environment variables. Local settings override bank settings. Placeholders starting with SET_ are ignored.");
         }
 
         request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
@@ -152,19 +143,11 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         AbsaPaymentInitiateRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (UseSimulator)
-        {
-            _logger.LogInformation(
-                "Absa payment initiate simulator used TxRef={TxRef}",
-                request.Economics.TransactionRef);
-            return SimulatePaymentInitiate(request);
-        }
-
         if (!IsConfigured)
         {
             throw new InvalidOperationException(
                 $"Absa CAPI is not configured for live payment. Missing or placeholder: {DescribeMissingConfiguration()}. " +
-                "Set values in appsettings.json or appsettings.Local.json (Local overrides json). Placeholders starting with SET_ are ignored.");
+                "Set values in appsettings.Absa.json, appsettings.Local.json, user-secrets, or GPAY_AbsaCapi__* environment variables. Local settings override bank settings. Placeholders starting with SET_ are ignored.");
         }
 
         request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
@@ -177,7 +160,12 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
             request.Economics.Indicator,
             request.Economics.TransactionRef);
 
-        var body = await SendAsync(_options.PaymentInitiatePath, HttpMethod.Post, json, cancellationToken);
+        var body = await SendAsync(
+            _options.PaymentInitiatePath,
+            HttpMethod.Post,
+            json,
+            cancellationToken,
+            request.GpayOrderId);
         return DeserializePaymentInitiate(body);
     }
 
@@ -186,14 +174,6 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         AbsaPaymentStatusRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (UseSimulator)
-        {
-            _logger.LogInformation(
-                "Absa payment status simulator used Correlations={Count}",
-                request.Correlations.Count);
-            return SimulatePaymentStatus(request);
-        }
-
         if (!IsConfigured)
         {
             throw new InvalidOperationException(
@@ -207,7 +187,12 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
             "Absa PaymentStatus Correlations={Count}",
             request.Correlations.Count);
 
-        var body = await SendAsync(_options.PaymentStatusPath, HttpMethod.Post, json, cancellationToken);
+        var body = await SendAsync(
+            _options.PaymentStatusPath,
+            HttpMethod.Post,
+            json,
+            cancellationToken,
+            request.GpayOrderId);
         return DeserializePaymentStatus(body);
     }
 
@@ -216,12 +201,6 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         AbsaPaymentCallbackRegisterRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (UseSimulator)
-        {
-            _logger.LogInformation("Absa payment callback register simulator used Uri={Uri}", request.Uri);
-            return new AbsaPaymentCallbackRegisterResponse { IsSuccess = true, Status = 2, ErrorList = [] };
-        }
-
         if (!IsConfigured)
         {
             throw new InvalidOperationException(
@@ -239,12 +218,6 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         AbsaPaymentCallbackUnregisterRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (UseSimulator)
-        {
-            _logger.LogInformation("Absa payment callback unregister simulator used Uri={Uri}", request.Uri);
-            return new AbsaPaymentCallbackRegisterResponse { IsSuccess = true, Status = 2, ErrorList = [] };
-        }
-
         if (!IsConfigured)
         {
             throw new InvalidOperationException(
@@ -335,7 +308,8 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         string relativePath,
         HttpMethod method,
         string? jsonBody,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? gpayOrderId = null)
     {
         if (string.IsNullOrWhiteSpace(_options.BaseUrl))
         {
@@ -388,6 +362,7 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
                 _logger,
                 new BankApiCallAuditEntry
                 {
+                    GpayOrderId = gpayOrderId,
                     Direction = "Outbound",
                     Operation = OperationName(relativePath),
                     HttpMethod = method.Method,
@@ -462,84 +437,6 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
     }
 
     internal static bool IsNonAbsaBank(string? bankCode) => !IsAbsaBank(bankCode);
-
-    private static AbsaAvsResponse Simulate(AbsaAvsRequest request)
-    {
-        var hasIdentity = !string.IsNullOrWhiteSpace(request.ClientIdNumber);
-        var hasName = !string.IsNullOrWhiteSpace(request.ClientName);
-        var hasInitials = !string.IsNullOrWhiteSpace(request.ClientInitials);
-
-        return new AbsaAvsResponse
-        {
-            Status = 5,
-            ReferenceNumber = "SIM" + DateTime.UtcNow.ToString("HHmmss"),
-            CorrelationId = request.CorrelationId,
-            ValueList =
-            [
-                new AbsaAvsValueItem { Key = "Account Open", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "Account Found", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "Account Open Longer Than 3 Months", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "ID Matched", Value = hasIdentity ? "Yes" : "Unverified" },
-                new AbsaAvsValueItem { Key = "Name Matched", Value = hasName ? "Yes" : "Unverified" },
-                new AbsaAvsValueItem { Key = "Initials Match", Value = hasInitials ? "Yes" : "Unverified" },
-                new AbsaAvsValueItem { Key = "Account Type Matched", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "Account Allows Credit", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "Account Accepts Credit", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "Account Allows Debit", Value = "Yes" },
-                new AbsaAvsValueItem { Key = "Account Accepts Debit", Value = "Yes" },
-                new AbsaAvsValueItem
-                {
-                    Key = "Email Address Match",
-                    Value = string.IsNullOrWhiteSpace(request.EmailAddress) ? "Unverified" : "Yes"
-                },
-                new AbsaAvsValueItem
-                {
-                    Key = "Cell Number Match",
-                    Value = string.IsNullOrWhiteSpace(request.CellNumber) ? "Unverified" : "Yes"
-                }
-            ],
-            ErrorList = [],
-            ResponseUtcTime = DateTime.UtcNow.ToString("O"),
-            UserFriendlyDisplayList = []
-        };
-    }
-
-    private static AbsaPaymentInitiateResponse SimulatePaymentInitiate(AbsaPaymentInitiateRequest request)
-    {
-        var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-        return new AbsaPaymentInitiateResponse
-        {
-            Status = 2,
-            Correlations =
-            [
-                new AbsaPaymentCorrelation { Type = 1, Value = request.Source.StatementRef },
-                new AbsaPaymentCorrelation { Type = 2, Value = request.Target.StatementRef },
-                new AbsaPaymentCorrelation { Type = 3, Value = $"SIM-API-{stamp}" },
-                new AbsaPaymentCorrelation { Type = 4, Value = request.Economics.TransactionRef }
-            ],
-            ErrorList = []
-        };
-    }
-
-    private static AbsaPaymentStatusResponse SimulatePaymentStatus(AbsaPaymentStatusRequest request)
-    {
-        var items = request.Correlations.Select(corr => new AbsaPaymentStatusListItem
-        {
-            Status = 3,
-            Correlations =
-            [
-                new AbsaPaymentCorrelation { Type = 3, Value = corr.StartsWith("SIM-API-", StringComparison.Ordinal) ? corr : $"SIM-API-{corr}" },
-                new AbsaPaymentCorrelation { Type = 4, Value = corr }
-            ],
-            ErrorList = []
-        }).ToList();
-
-        return new AbsaPaymentStatusResponse
-        {
-            StatusList = items,
-            ErrorList = []
-        };
-    }
 
     private static AbsaPaymentInitiateResponse DeserializePaymentInitiate(string body)
     {

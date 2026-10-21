@@ -42,6 +42,15 @@ public class Program
             builder.Host.AddAppSettingsSecretsJson()
                 .UseAutofac()
                 .UseSerilog();
+
+            foreach (var bank in Enum.GetNames<BankCode>())
+            {
+                builder.Configuration.AddJsonFile(
+                    $"appsettings.{bank}.json",
+                    optional: true,
+                    reloadOnChange: true);
+            }
+
             builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
             builder.Configuration.AddEnvironmentVariables(prefix: "GPAY_");
 

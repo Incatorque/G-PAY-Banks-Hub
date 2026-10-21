@@ -51,7 +51,7 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// Verifies a single bank account (AVS) via the bank named in the request body.
     /// </summary>
     /// <param name="input">Account, branch, identity/name fields, and target <c>Bank</c>.</param>
-    /// <returns>Normalized match flags, result codes, <c>correlationId</c>, and persisted <c>recordId</c>.</returns>
+    /// <returns>Normalized match flags, result codes, <c>correlationId</c>, and persisted AVS <c>recordId</c>.</returns>
     /// <remarks>Permission: <c>Banking.Avs.Verify</c>. Persists a <c>BankHubAvsRecord</c>.</remarks>
     [Authorize(AvsPermissions.Verify)]
     public async Task<AccountVerificationResultDto> VerifyAsync(VerifyAccountRequestDto input)

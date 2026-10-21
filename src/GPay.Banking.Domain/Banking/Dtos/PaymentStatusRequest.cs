@@ -8,6 +8,9 @@ using GPay.Banking;
 /// </summary>
 public sealed class PaymentStatusRequest
 {
+    /// <summary>Internal GPay order identifier used to associate API audit rows.</summary>
+    public Guid? GpayOrderId { get; init; }
+
     /// <summary>
     /// Absa Correlations type 4 (TransactionRef). Preferred when available.
     /// </summary>

@@ -153,11 +153,6 @@ public sealed class AbsaCapiOptions
     public int TimeoutSeconds { get; set; } = 60;
 
     /// <summary>
-    /// When true, AVS and payment use a simulated MIG-shaped response (no outbound CAPI call).
-    /// </summary>
-    public bool UseSimulator { get; set; }
-
-    /// <summary>
     /// Session cache lifetime buffer. Absa sessions expire after ~30 minutes.
     /// </summary>
     public int SessionCacheSeconds { get; set; } = 25 * 60;

@@ -21,7 +21,7 @@ public class PaymentStatusRequestDto
     public string? TransactionReference { get; set; }
 
     /// <summary>
-    /// Bank API reference (Absa Correlations type 3 — ApiRef), e.g. <c>SIM-API-...</c>.
+    /// Bank API reference (Absa Correlations type 3 — ApiRef).
     /// </summary>
     public string? ApiReference { get; set; }
 }
