@@ -16,7 +16,9 @@ public sealed class AbsaBalanceService : IBalanceService
     /// <summary>
     /// Initializes a new instance of the <see cref="AbsaBalanceService"/> class.
     /// </summary>
-    public AbsaBalanceService(IAbsaCapiClient capiClient, ILogger<AbsaBalanceService> logger)
+    public AbsaBalanceService(
+        IAbsaCapiClient capiClient,
+        ILogger<AbsaBalanceService> logger)
     {
         _capiClient = capiClient;
         _logger = logger;

@@ -15,7 +15,8 @@ public static class BankCodeParser
             return BankCode.Absa;
         }
 
-        if (bank.Equals("Fnb", StringComparison.OrdinalIgnoreCase))
+        if (bank.Equals("Fnb", StringComparison.OrdinalIgnoreCase) ||
+            bank.Equals("First National Bank", StringComparison.OrdinalIgnoreCase))
         {
             return BankCode.Fnb;
         }

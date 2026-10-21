@@ -16,7 +16,9 @@ public sealed class AbsaNotificationService : INotificationService
     /// <summary>
     /// Initializes a new instance of the <see cref="AbsaNotificationService"/> class.
     /// </summary>
-    public AbsaNotificationService(IAbsaCapiClient capiClient, ILogger<AbsaNotificationService> logger)
+    public AbsaNotificationService(
+        IAbsaCapiClient capiClient,
+        ILogger<AbsaNotificationService> logger)
     {
         _capiClient = capiClient;
         _logger = logger;

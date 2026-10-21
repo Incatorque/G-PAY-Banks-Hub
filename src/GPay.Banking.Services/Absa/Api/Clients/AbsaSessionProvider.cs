@@ -67,7 +67,7 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
             {
                 throw new InvalidOperationException(
                     "AbsaCapi Username/Password are not configured. Set AbsaCapi__Username / AbsaCapi__Password " +
-                    "via appsettings.Local.json, user-secrets, or GPAY_AbsaCapi__* environment variables.");
+                    "via appsettings.Absa.json, appsettings.Local.json, user-secrets, or GPAY_AbsaCapi__* environment variables.");
             }
 
             var uri = BuildUri(_options.AuthenticatePath);

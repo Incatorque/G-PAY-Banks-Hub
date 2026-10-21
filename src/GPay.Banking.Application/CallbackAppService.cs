@@ -31,27 +31,26 @@ namespace GPay.Banking;
 public class CallbackAppService : ApplicationService, ICallbackAppService
 {
     private readonly IBankCapabilityResolver _resolver;
-    private readonly IRepository<BankHubPaymentRecord, Guid> _paymentRepository;
+    private readonly IRepository<BankHubApiCall, Guid> _apiCallRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly BankCallbackOptions _callbackOptions;
     private readonly IGpayOrderSync _gpayOrderSync;
 
-    public CallbackAppService(
-        IBankCapabilityResolver resolver,
-        IRepository<BankHubPaymentRecord, Guid> paymentRepository,
-        IHttpContextAccessor httpContextAccessor,
-        IOptions<BankCallbackOptions> callbackOptions,
-        IGpayOrderSync gpayOrderSync)
+    public CallbackAppService(IBankCapabilityResolver resolver, 
+                              IRepository<BankHubApiCall, Guid> apiCallRepository,
+                              IHttpContextAccessor httpContextAccessor, 
+                              IOptions<BankCallbackOptions> callbackOptions, 
+                              IGpayOrderSync gpayOrderSync)
     {
         _resolver = resolver;
-        _paymentRepository = paymentRepository;
+        _apiCallRepository = apiCallRepository;
         _httpContextAccessor = httpContextAccessor;
         _callbackOptions = callbackOptions.Value;
         _gpayOrderSync = gpayOrderSync;
     }
 
     /// <summary>
-    /// Processes a bank payment status callback and updates the matching payment record when found.
+/// Processes a bank payment status callback and updates the matching GPay order when found.
     /// </summary>
     /// <param name="bank">
     /// Bank key: <c>Absa</c>, <c>Fnb</c>, or <c>Nedbank</c>.
@@ -142,7 +141,7 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             };
         }
 
-        await ApplyUpdateAsync(result.Update);
+        await ApplyUpdateAsync(result.Update, bankCode);
 
         return new CallbackAckDto
         {
@@ -166,71 +165,40 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
         return body;
     }
 
-    private async Task ApplyUpdateAsync(PaymentCallbackUpdate update)
+    private async Task ApplyUpdateAsync(PaymentCallbackUpdate update, BankCode bankCode)
     {
-        BankHubPaymentRecord? record = null;
+        var bankStorageCode = BankCodeParser.ToStorageCode(bankCode);
+        var matchingCalls = await _apiCallRepository.GetListAsync(call =>
+            call.BankCode == bankStorageCode &&
+            call.Direction == "Outbound" &&
+            call.GpayOrderId.HasValue &&
+            call.Operation == "initiate" &&
+            ((!string.IsNullOrWhiteSpace(update.TransactionReference) &&
+              call.ResponseJson!.Contains(update.TransactionReference)) ||
+             (!string.IsNullOrWhiteSpace(update.ApiReference) &&
+              call.ResponseJson!.Contains(update.ApiReference))));
+        var paymentCall = matchingCalls
+            .OrderByDescending(call => call.CreationTime)
+            .FirstOrDefault();
 
-        if (!string.IsNullOrWhiteSpace(update.TransactionReference))
+        if (paymentCall?.GpayOrderId is not Guid gpayOrderId)
         {
-            record = await _paymentRepository.FirstOrDefaultAsync(
-                x => x.TransactionReference == update.TransactionReference);
-        }
-
-        if (record is null && !string.IsNullOrWhiteSpace(update.ApiReference))
-        {
-            record = await _paymentRepository.FirstOrDefaultAsync(
-                x => x.ApiReference == update.ApiReference);
-        }
-
-        if (record is null)
-        {
+            Logger.LogWarning(
+                "Could not map {Bank} callback references to a GPay order. TxRef={TransactionReference}, ApiRef={ApiReference}.",
+                bankStorageCode,
+                update.TransactionReference,
+                update.ApiReference);
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(update.Status))
-        {
-            record.Status = update.Status!;
-        }
-
-        if (!string.IsNullOrWhiteSpace(update.TransactionReference))
-        {
-            record.TransactionReference = update.TransactionReference;
-        }
-
-        if (!string.IsNullOrWhiteSpace(update.ApiReference))
-        {
-            record.ApiReference = update.ApiReference;
-        }
-
-        if (!string.IsNullOrWhiteSpace(update.PaymentRail))
-        {
-            record.PaymentRail = update.PaymentRail!;
-        }
-
-        if (update.Amount.HasValue)
-        {
-            record.Amount = update.Amount.Value;
-        }
-
-        if (!string.IsNullOrWhiteSpace(update.Currency))
-        {
-            record.Currency = update.Currency!;
-        }
-
-        if (!string.IsNullOrWhiteSpace(update.ResponseJson))
-        {
-            record.ResponseJson = update.ResponseJson;
-        }
-
-        record.ErrorMessage = update.ErrorMessage;
-        await _paymentRepository.UpdateAsync(record, autoSave: true);
         await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
         {
-            Reference = record.Reference,
-            TransactionReference = record.TransactionReference,
-            HubStatus = record.Status,
-            Note = record.ErrorMessage ?? record.ResultDescription,
-            Amount = record.Amount
+            GpayOrderId = gpayOrderId,
+            Reference = update.TransactionReference ?? update.ApiReference,
+            TransactionReference = update.TransactionReference,
+            HubStatus = update.Status,
+            Note = update.ErrorMessage,
+            Amount = update.Amount ?? 0m
         });
     }
 }

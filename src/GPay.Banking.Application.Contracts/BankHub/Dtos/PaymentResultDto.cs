@@ -11,11 +11,6 @@ namespace GPay.Banking.BankHub;
 public class PaymentResultDto
 {
     /// <summary>
-    /// Persisted <c>BankHubPaymentRecord</c> id when a matching local record exists or was created.
-    /// </summary>
-    public Guid? RecordId { get; set; }
-
-    /// <summary>
     /// Normalized or bank-labelled payment status.
     /// </summary>
     /// <example>Submitted</example>

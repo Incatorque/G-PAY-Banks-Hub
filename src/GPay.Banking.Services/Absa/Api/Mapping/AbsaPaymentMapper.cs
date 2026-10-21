@@ -93,6 +93,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
 
         return new AbsaPaymentInitiateRequest
         {
+            GpayOrderId = request.GpayOrderId,
             Authorisation = new AbsaPaymentAuthorisation
             {
                 SubmittingEntityName = submitting,
@@ -167,7 +168,8 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
 
         return new AbsaPaymentStatusRequest
         {
-            Correlations = [corr.Trim()]
+            Correlations = [corr.Trim()],
+            GpayOrderId = request.GpayOrderId
         };
     }
 

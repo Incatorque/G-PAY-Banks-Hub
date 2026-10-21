@@ -52,12 +52,11 @@ public sealed class AbsaAccountVerificationService : IAccountVerificationService
             var absaRequest = _mapper.ToAbsaRequest(request, correlationId);
 
             _logger.LogInformation(
-                "Absa AVS start Account={Account} Branch={Branch} BankCode={BankCode} CorrelationId={CorrelationId} Simulator={Simulator}",
+                "Absa AVS start Account={Account} Branch={Branch} BankCode={BankCode} CorrelationId={CorrelationId}",
                 absaRequest.AccountNumber,
                 absaRequest.BranchCode,
                 absaRequest.BankCode,
-                correlationId,
-                _capiClient.UseSimulator);
+                correlationId);
 
             var absaResponse = await _capiClient.VerifyAccountAsync(absaRequest, cancellationToken);
 

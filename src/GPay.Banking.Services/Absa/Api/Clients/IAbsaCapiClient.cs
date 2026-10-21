@@ -14,11 +14,6 @@ public interface IAbsaCapiClient
     bool IsConfigured { get; }
 
     /// <summary>
-    /// Indicates whether the local AVS/payment simulator should be used.
-    /// </summary>
-    bool UseSimulator { get; }
-
-    /// <summary>
     /// Calls Absa Account Verification (ValidateBankDetails, and ValidateBankReference when pending).
     /// </summary>
     Task<AbsaAvsResponse> VerifyAccountAsync(AbsaAvsRequest request, CancellationToken cancellationToken = default);
@@ -54,5 +49,10 @@ public interface IAbsaCapiClient
     /// <summary>
     /// Sends a raw JSON request to Absa CAPI with security headers.
     /// </summary>
-    Task<string> SendAsync(string relativePath, HttpMethod method, string? jsonBody, CancellationToken cancellationToken = default);
+    Task<string> SendAsync(
+        string relativePath,
+        HttpMethod method,
+        string? jsonBody,
+        CancellationToken cancellationToken = default,
+        Guid? gpayOrderId = null);
 }

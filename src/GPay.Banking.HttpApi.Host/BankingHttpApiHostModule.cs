@@ -34,7 +34,6 @@ public class BankingHttpApiHostModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
-        var hosting = context.Services.GetHostingEnvironment();
         var requireGpayAuth = configuration.GetValue("AuthServer:RequireGpayAuth", true);
 
         context.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -92,8 +91,6 @@ public class BankingHttpApiHostModule : AbpModule
         {
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         });
-
-        _ = hosting;
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)

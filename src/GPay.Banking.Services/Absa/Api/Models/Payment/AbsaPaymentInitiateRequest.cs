@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System;
 
 namespace GPay.Banking.Services.Absa.Api.Models.Payment;
 
@@ -7,6 +8,10 @@ namespace GPay.Banking.Services.Absa.Api.Models.Payment;
 /// </summary>
 public sealed class AbsaPaymentInitiateRequest
 {
+    /// <summary>Internal GPay order identifier; excluded from the Absa request payload.</summary>
+    [JsonIgnore]
+    public Guid? GpayOrderId { get; init; }
+
     /// <summary>
     /// Authorisation block.
     /// </summary>

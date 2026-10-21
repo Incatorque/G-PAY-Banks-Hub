@@ -3,10 +3,13 @@ using Volo.Abp.Domain.Entities.Auditing;
 namespace GPay.Banking.BankHub;
 
 /// <summary>
-/// Stored copy of an outbound Absa CAPI call or an inbound payment callback.
+/// Stored copy of an outbound bank API call or an inbound payment callback.
 /// </summary>
 public class BankHubApiCall : CreationAuditedAggregateRoot<Guid>
 {
+    /// <summary>Links payment API audit rows to the originating GPay order.</summary>
+    public Guid? GpayOrderId { get; set; }
+
     public string BankCode { get; set; } = "Absa";
 
     public string Direction { get; set; } = "Outbound";

@@ -23,22 +23,23 @@ Angular ops UI (web/)         →  dashboards / progress only (not primary paylo
 | `GPay.Banking.Domain` | Capability ports + `BankHub*` aggregates |
 | `GPay.Banking.Application.Contracts` | AppService interfaces, DTOs, permissions |
 | `GPay.Banking.Application` | AppServices + `AvsBatchProcessJob` |
-| `GPay.Banking.EntityFrameworkCore` | `BankingDbContext` (`AppBankHub*`) |
+| `GPay.Banking.EntityFrameworkCore` | Bank Hub-only `BankingDbContext` for `AppBankHub*` records |
 | `GPay.Banking.HttpApi` | Callbacks controller |
 | `GPay.Banking.HttpApi.Host` | Host (JWT AuthServer audience `GPay`) |
 | `GPay.Banking.Services` | Bank adapters (Absa/Fnb/Nedbank × Api/HostToHost) |
 
-Legacy Orchestrator / RabbitMQ / Persistence scaffold live under `src\_legacy\` (do not deploy).
+Legacy Orchestrator / RabbitMQ code lives under `src\_legacy\` (do not deploy). GPay order models and the legacy persistence project have been removed for re-scaffolding; PRS intake and GPay order status synchronization are paused until those models are restored.
 
 ## Run
 
-1. Apply `scripts\sql\CreateBankHubAbpTables.sql` (or add EF migrations later).
-2. Set secrets (user-secrets / `GPAY_` env / `appsettings.Local.json`):
-   - `AbsaCapi:*` (or keep `UseSimulator=true`)
+1. Point `ConnectionStrings:Default` at the database containing the Bank Hub tables.
+2. Apply `scripts\sql\CreateBankHubAbpTables.sql` to that database. The Absa PRS poller reads all PRS orders whose payer account is held at Absa; it does not require a separate PayShap marker or amount limit.
+3. Set secrets (user-secrets / `GPAY_` env / `appsettings.Local.json`):
+   - `AbsaCapi:*` credentials and certificate settings
    - `AbsaCallback:PaymentToken`
-3. `dotnet run --project src\GPay.Banking.HttpApi.Host`
-4. Swagger: `/swagger` (OpenAPI JSON: `/swagger/v1/swagger.json`)
-5. Full offline API reference: [`docs/Swagger-API-Reference.md`](docs/Swagger-API-Reference.md)
+4. `dotnet run --project src\GPay.Banking.HttpApi.Host`
+5. Swagger: `/swagger` (OpenAPI JSON: `/swagger/v1/swagger.json`)
+6. Full offline API reference: [`docs/Swagger-API-Reference.md`](docs/Swagger-API-Reference.md)
 
 ## Key APIs
 
@@ -60,5 +61,7 @@ In Swagger UI use **Authorize** with a Bearer token for protected operations whe
 
 ## Config
 
-See `src\GPay.Banking.HttpApi.Host\appsettings.json`. Default Absa mode is **simulator**.
+Global settings live in `src\GPay.Banking.HttpApi.Host\appsettings.json`. Bank settings live in `appsettings.<BankCode>.json` beside it (for example, `appsettings.Absa.json`). The host loads an optional bank file for every `BankCode` at startup. Keep shared settings such as database, authentication, SMTP, and polling intervals in the global file; place bank-specific API, callback, and bank enablement settings in that bank's file. `appsettings.Local.json` and `GPAY_` environment variables can override these values.
+
+Absa calls always use the configured CAPI endpoints; configure valid credentials and certificate settings before running payments or AVS checks.
 

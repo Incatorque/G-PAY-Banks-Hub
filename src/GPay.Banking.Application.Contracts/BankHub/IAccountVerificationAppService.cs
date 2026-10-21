@@ -27,7 +27,7 @@ public interface IAccountVerificationAppService : IApplicationService
     /// </summary>
     /// <param name="input">Account, branch, identity/name fields, and target <c>Bank</c>.</param>
     /// <returns>
-    /// Normalized match flags, result codes, <c>correlationId</c>, and persisted <c>recordId</c>.
+    /// Normalized match flags, result codes, <c>correlationId</c>, and persisted AVS <c>recordId</c>.
     /// </returns>
     /// <remarks>
     /// Permission: <c>Banking.Avs.Verify</c>.

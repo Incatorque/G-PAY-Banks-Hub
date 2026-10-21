@@ -52,13 +52,14 @@ public class BankingServicesModule : AbpModule
             client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
         }).ConfigureAbsaPrimaryHandler();
 
-        context.Services.AddScoped<IAccountVerificationService, AbsaAccountVerificationService>();
-        context.Services.AddScoped<IInstantPaymentService, AbsaInstantPaymentService>();
-        context.Services.AddScoped<IBalanceService, AbsaBalanceService>();
-        context.Services.AddScoped<IStatementService, AbsaStatementService>();
-        context.Services.AddScoped<ITransactionHistoryService, AbsaStatementService>();
-        context.Services.AddScoped<INotificationService, AbsaNotificationService>();
-        context.Services.AddScoped<IPaymentCallbackService, AbsaPaymentCallbackService>();
-        context.Services.AddScoped<IPaymentCallbackRegistrationService, AbsaPaymentCallbackRegistrationService>();
+        var absa = BankCode.Absa.ToString();
+        context.Services.AddKeyedScoped<IAccountVerificationService, AbsaAccountVerificationService>(absa);
+        context.Services.AddKeyedScoped<IInstantPaymentService, AbsaInstantPaymentService>(absa);
+        context.Services.AddKeyedScoped<IBalanceService, AbsaBalanceService>(absa);
+        context.Services.AddKeyedScoped<IStatementService, AbsaStatementService>(absa);
+        context.Services.AddKeyedScoped<ITransactionHistoryService, AbsaStatementService>(absa);
+        context.Services.AddKeyedScoped<INotificationService, AbsaNotificationService>(absa);
+        context.Services.AddKeyedScoped<IPaymentCallbackService, AbsaPaymentCallbackService>(absa);
+        context.Services.AddKeyedScoped<IPaymentCallbackRegistrationService, AbsaPaymentCallbackRegistrationService>(absa);
     }
 }
