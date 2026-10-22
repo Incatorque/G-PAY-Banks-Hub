@@ -2,7 +2,6 @@ using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Domain.Dtos;
 using GPay.Banking.Helpers;
-using GPay.Banking.Permissions;
 using GPay.Banking.Services.Absa;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -15,7 +14,7 @@ namespace GPay.Banking;
 /// <summary>
 /// Channel callback URL administration AppService (ABP conventional Swagger endpoints).
 /// </summary>
-[Authorize(PaymentsPermissions.Default)]
+[Authorize]
 public class CallbackRegistrationAppService : ApplicationService, ICallbackRegistrationAppService
 {
     private readonly IBankCapabilityResolver _resolver;
@@ -36,7 +35,6 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
     }
 
     /// <inheritdoc />
-    [Authorize(PaymentsPermissions.View)]
     public Task<PaymentCallbackDefaultsDto> GetDefaultsAsync(string bank = "Absa")
     {
         _ = BankCodeParser.Parse(bank);
@@ -58,7 +56,6 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
     }
 
     /// <inheritdoc />
-    [Authorize(PaymentsPermissions.Initiate)]
     public async Task<PaymentCallbackRegistrationResultDto> RegisterAsync(RegisterPaymentCallbackRequestDto input)
     {
         var bank = BankCodeParser.Parse(input.Bank);
@@ -70,7 +67,6 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
     }
 
     /// <inheritdoc />
-    [Authorize(PaymentsPermissions.Initiate)]
     public async Task<PaymentCallbackRegistrationResultDto> AmendAsync(RegisterPaymentCallbackRequestDto input)
     {
         var bank = BankCodeParser.Parse(input.Bank);
@@ -82,7 +78,6 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
     }
 
     /// <inheritdoc />
-    [Authorize(PaymentsPermissions.Initiate)]
     public async Task<PaymentCallbackRegistrationResultDto> UnregisterAsync(UnregisterPaymentCallbackRequestDto input)
     {
         var bank = BankCodeParser.Parse(input.Bank);

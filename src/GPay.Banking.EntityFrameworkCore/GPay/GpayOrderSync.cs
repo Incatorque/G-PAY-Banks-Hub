@@ -9,6 +9,8 @@ namespace GPay.Banking.EntityFrameworkCore.GPay;
 /// </summary>
 public sealed class GpayOrderSync : IGpayOrderSync
 {
+    private const string PaymentAcceptedTransactionCode = "3PIM Transaction";
+
     private readonly BankingDbContext _dbContext;
     private readonly ILogger<GpayOrderSync> _logger;
 
@@ -67,12 +69,22 @@ public sealed class GpayOrderSync : IGpayOrderSync
             from candidate in ordersFromEnabledBanks
             join payee in _dbContext.Set<GpayAccountRow>().AsNoTracking()
                 on candidate.Order.ToAccountId equals (Guid?)payee.Id
+            join countryCurrency in _dbContext.Set<GpayCountryCurrencyRow>().AsNoTracking()
+    on candidate.Payer.CountryCurrencyId equals (int?)countryCurrency.Id
+    into countryCurrencyGroup
+            from countryCurrency in countryCurrencyGroup.DefaultIfEmpty()
+
+            join currency in _dbContext.Set<GpayCurrencyRow>().AsNoTracking()
+                on countryCurrency.CurrencyId equals currency.Id
+                into currencyGroup
+            from currency in currencyGroup.DefaultIfEmpty()
             select new
             {
                 candidate.Order,
                 candidate.Payer,
                 candidate.Bank,
-                Payee = payee
+                Payee = payee,
+                Currency = currency.Code
             };
 
         var ordersWithAmount =
@@ -101,6 +113,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 FromAccountNumber = candidate.Candidate.Payer.AccountNumber,
                 ToAccountNumber = candidate.Candidate.Payee.AccountNumber,
                 ToBranchCode = candidate.Candidate.Payee.BranchCode,
+                candidate.Candidate.Currency,
                 BeneficiaryName = _dbContext.Set<GpayEntityRow>()
                     .Where(entity => entity.Id == candidate.Candidate.Payee.EntityId)
                     .Select(entity => entity.Name)
@@ -120,6 +133,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
                     ? row.OrderNumber.ToString()
                     : row.ReferenceNumber,
                 Amount = row.Amount,
+                Currency = row.Currency,
                 FromAccountNumber = row.FromAccountNumber,
                 ToAccountNumber = row.ToAccountNumber,
                 ToBranchCode = row.ToBranchCode,
@@ -172,6 +186,74 @@ public sealed class GpayOrderSync : IGpayOrderSync
         return candidates;
     }
 
+    public async Task<IReadOnlyList<GpayPaymentStatusCandidate>> GetOrdersForStatusCheckAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var startOfToday = DateTime.Today;
+        var startOfTomorrow = startOfToday.AddDays(1);
+
+        var query =
+            from order in _dbContext.Set<GpayOrderRow>().AsNoTracking()
+            join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+                on order.StatusId equals status.Id
+            join payer in _dbContext.Set<GpayAccountRow>().AsNoTracking()
+                on order.FromAccountId equals (Guid?)payer.Id
+            join bank in _dbContext.Set<GpayBankRow>().AsNoTracking()
+                on payer.BankId equals bank.Id
+            where order.OrderDate >= startOfToday
+                  && order.OrderDate < startOfTomorrow
+                  && status.Name.ToUpper() != "ERROR"
+                  && status.Name.ToUpper() != "COMPLETED"
+                  && status.Name.ToUpper() != "RECONCILED"
+            orderby order.OrderDate, order.OrderNumber
+            select new
+            {
+                order.Id,
+                order.OrderNumber,
+                order.ReferenceNumber,
+                BankName = bank.Name,
+                FromAccountNumber = payer.AccountNumber,
+                ToAccountNumber = _dbContext.Set<GpayAccountRow>()
+                    .Where(account => (Guid?)account.Id == order.ToAccountId)
+                    .Select(account => account.AccountNumber)
+                    .FirstOrDefault(),
+                Currency = _dbContext.Set<GpayCountryCurrencyRow>()
+                    .Where(countryCurrency => (int?)countryCurrency.Id == payer.CountryCurrencyId)
+                    .Join(
+                        _dbContext.Set<GpayCurrencyRow>(),
+                        countryCurrency => countryCurrency.CurrencyId,
+                        currency => currency.Id,
+                        (countryCurrency, currency) => currency.Code)
+                    .FirstOrDefault(),
+                Amount = _dbContext.Set<GpayOrderItemRow>()
+                    .Where(item => item.OrderId == order.Id)
+                    .Sum(item => (item.Price ?? 0m) * (item.Quantity ?? 0m))
+            };
+
+        var rows = await query.ToListAsync(cancellationToken);
+        var candidates = rows
+            .Select(row => new GpayPaymentStatusCandidate
+            {
+                OrderId = row.Id,
+                OrderNumber = row.OrderNumber.ToString(),
+                Bank = NormalizeBank(row.BankName),
+                Reference = string.IsNullOrWhiteSpace(row.ReferenceNumber)
+                    ? row.OrderNumber.ToString()
+                    : row.ReferenceNumber,
+                Amount = row.Amount,
+                Currency = row.Currency ?? string.Empty,
+                FromAccountNumber = row.FromAccountNumber,
+                ToAccountNumber = row.ToAccountNumber ?? string.Empty
+            })
+            .ToList();
+
+        _logger.LogInformation(
+            "Found {OrderCount} today's non-terminal GPay orders for bank status checks.",
+            candidates.Count);
+
+        return candidates;
+    }
+
     public Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
     {
         var query =
@@ -203,7 +285,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
             return BankCode.Nedbank.ToString();
         }
 
-        throw new InvalidOperationException($"Cannot map GPay bank name '{bankName}' to a Bank Hub adapter.");
+        return bankName.Trim();
     }
 
     public async Task ApplyPaymentAsync(
@@ -255,6 +337,12 @@ public sealed class GpayOrderSync : IGpayOrderSync
 
         if (order.StatusId == targetStatus.Value)
         {
+            if (targetStatus.Value == GpayOrderStatusIds.Completed)
+            {
+                await EnsureAcceptedPaymentStatementAsync(order, request, cancellationToken);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
             return;
         }
 
@@ -266,6 +354,11 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 order.OrderNumber,
                 order.StatusId);
             return;
+        }
+
+        if (targetStatus.Value == GpayOrderStatusIds.Completed)
+        {
+            await EnsureAcceptedPaymentStatementAsync(order, request, cancellationToken);
         }
 
         var previousStatus = order.StatusId;
@@ -295,4 +388,134 @@ public sealed class GpayOrderSync : IGpayOrderSync
             targetStatus.Value,
             request.HubStatus);
     }
+
+    private async Task EnsureAcceptedPaymentStatementAsync(
+        GpayOrderRow order,
+        GpayPaymentSyncRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (order.EntityBankStatementId.HasValue)
+        {
+            return;
+        }
+
+        if (!order.FromAccountId.HasValue)
+        {
+            _logger.LogWarning(
+                "Cannot create an accepted-payment statement for GPay order {OrderNumber}; it has no payer account.",
+                order.OrderNumber);
+            return;
+        }
+
+        var account = await _dbContext.Set<GpayAccountRow>()
+            .AsNoTracking()
+            .Where(row => row.Id == order.FromAccountId.Value)
+            .Select(row => new { row.Id, row.EntityId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var transactionCodeId = await _dbContext.Set<GpayTransactionCodeRow>()
+            .AsNoTracking()
+            .Where(row => row.Name == PaymentAcceptedTransactionCode && row.Active == true)
+            .Select(row => (int?)row.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (account is null || !transactionCodeId.HasValue)
+        {
+            _logger.LogError(
+                "Cannot create accepted-payment statement for GPay order {OrderNumber}; payer account or active transaction code '{TransactionCode}' was not found.",
+                order.OrderNumber,
+                PaymentAcceptedTransactionCode);
+            return;
+        }
+
+        var amount = request.Amount > 0m
+            ? request.Amount
+            : await _dbContext.Set<GpayOrderItemRow>()
+                .Where(item => item.OrderId == order.Id)
+                .SumAsync(
+                    item => (item.Price ?? 0m) * (item.Quantity ?? 0m),
+                    cancellationToken);
+
+        if (amount <= 0m)
+        {
+            _logger.LogError(
+                "Cannot create accepted-payment statement for GPay order {OrderNumber}; its amount is not positive.",
+                order.OrderNumber);
+            return;
+        }
+
+        var reference = FirstNonEmpty(
+            request.Reference,
+            order.ReferenceNumber,
+            request.TransactionReference,
+            order.OrderNumber.ToString());
+
+        var existingStatement = await _dbContext.Set<GpayEntityBankStatementRow>()
+            .FirstOrDefaultAsync(
+                statement => statement.AccountId == account.Id
+                             && statement.ReferenceNumber == reference
+                             && statement.Amount == -Math.Abs(amount),
+                cancellationToken);
+
+        var statementId = existingStatement?.Id ?? Guid.NewGuid();
+        if (existingStatement is null)
+        {
+            var now = DateTime.Now;
+            var statement = new GpayEntityBankStatementRow
+            {
+                Id = statementId,
+                Description = reference.Length <= 250 ? reference : reference[..250],
+                ReferenceNumber = reference.Length <= 50 ? reference : reference[..50],
+                TransactionDate = now,
+                Amount = -Math.Abs(amount),
+                SyncDate = now,
+                Reconciled = false,
+                EntityId = account.EntityId,
+                AccountId = account.Id,
+                IsIntra = false,
+                IsProcessed = true,
+                TransactionCodeId = transactionCodeId.Value,
+                SupplierBankReference = Truncate(request.TransactionReference, 50),
+                Active = true
+            };
+
+            _dbContext.Set<GpayEntityBankStatementRow>().Add(statement);
+
+            var auditUserId = order.UserId ?? await _dbContext.Set<GpayOrderHistoryRow>()
+                .AsNoTracking()
+                .Where(history => history.OrderId == order.Id && history.UserId.HasValue)
+                .OrderByDescending(history => history.Date)
+                .Select(history => history.UserId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (auditUserId.HasValue)
+            {
+                _dbContext.Set<GpayEntityBankStatementLogRow>().Add(new GpayEntityBankStatementLogRow
+                {
+                    Id = Guid.NewGuid(),
+                    EntityBankStatementId = statementId,
+                    UpdatedDate = now,
+                    UserId = auditUserId.Value,
+                    UpdateDescription = "Bank Hub created a provisional statement after the bank accepted the payment.",
+                    IsCopied = false
+                });
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "GPay order {OrderNumber} has no user id; its EntityBankStatementLog entry cannot be created.",
+                    order.OrderNumber);
+            }
+        }
+
+        order.EntityBankStatementId = statementId;
+    }
+
+    private static string FirstNonEmpty(params string?[] values) =>
+        values.First(value => !string.IsNullOrWhiteSpace(value))!.Trim();
+
+    private static string? Truncate(string? value, int maxLength) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Length <= maxLength ? value : value[..maxLength];
 }

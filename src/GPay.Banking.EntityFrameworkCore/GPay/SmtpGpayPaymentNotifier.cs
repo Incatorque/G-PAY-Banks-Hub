@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Mail;
+using System.Globalization;
+using System.Text.Encodings.Web;
 using GPay.Banking.Domain;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace GPay.Banking.EntityFrameworkCore.GPay;
@@ -10,14 +13,80 @@ namespace GPay.Banking.EntityFrameworkCore.GPay;
 public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
 {
     private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _hostEnvironment;
     private readonly ILogger<SmtpGpayPaymentNotifier> _logger;
 
     public SmtpGpayPaymentNotifier(
         IConfiguration configuration,
+        IHostEnvironment hostEnvironment,
         ILogger<SmtpGpayPaymentNotifier> logger)
     {
         _configuration = configuration;
+        _hostEnvironment = hostEnvironment;
         _logger = logger;
+    }
+
+    public Task NotifyPaymentInitiatedAsync(
+        GpayPaymentInitiatedNotification notification,
+        CancellationToken cancellationToken = default) =>
+        SendPaymentReportAsync(notification, cancellationToken);
+
+    public Task NotifyPaymentStatusCheckedAsync(
+        GpayPaymentInitiatedNotification notification,
+        CancellationToken cancellationToken = default) =>
+        SendPaymentReportAsync(notification, cancellationToken);
+
+    private async Task SendPaymentReportAsync(
+        GpayPaymentInitiatedNotification notification,
+        CancellationToken cancellationToken)
+    {
+        var templateFileName = notification.IsStatusCheck
+            ? notification.IsError
+                ? "payment-status-check-error.html"
+                : "payment-status-check-success.html"
+            : notification.IsError
+                ? "paymen-initiate-error.html"
+                : "paymen-initiate.html";
+        var templatePath = Path.Combine(_hostEnvironment.ContentRootPath, "Templates", templateFileName);
+
+        if (!File.Exists(templatePath))
+        {
+            _logger.LogError("Payment notification email template was not found at {TemplatePath}.", templatePath);
+            return;
+        }
+
+        var html = await File.ReadAllTextAsync(templatePath, cancellationToken);
+        var environmentBadge = _hostEnvironment.IsDevelopment() ||
+                               string.Equals(_hostEnvironment.EnvironmentName, "Dev", StringComparison.OrdinalIgnoreCase)
+            ? "DEV / TESTING"
+            : "PROD";
+        var statusDescription = notification.StatusDescription ??
+                                (notification.IsError
+                                    ? "The bank reported that payment settlement failed."
+                                    : "Payment successfully processed and settled.");
+
+        html = html
+            .Replace("{{EnvironmentBadge}}", Encode(environmentBadge), StringComparison.Ordinal)
+            .Replace("{{BankName}}", Encode(notification.Bank), StringComparison.Ordinal)
+            .Replace("{{Currency}}", Encode(notification.Currency), StringComparison.Ordinal)
+            .Replace("{{Amount}}", notification.Amount.ToString("N2", CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("{{OrderNumber}}", Encode(notification.OrderNumber), StringComparison.Ordinal)
+            .Replace("{{FromAccountNumber}}", Encode(notification.FromAccountNumber), StringComparison.Ordinal)
+            .Replace("{{ToAccountNumber}}", Encode(notification.ToAccountNumber), StringComparison.Ordinal)
+            .Replace("{{Reference}}", Encode(notification.Reference), StringComparison.Ordinal)
+            .Replace("{{Date}}", DateTimeOffset.Now.ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("{{Status}}", Encode(notification.Status), StringComparison.Ordinal)
+            .Replace("{{ErrorCode}}", Encode(notification.ErrorCode ?? notification.Status), StringComparison.Ordinal)
+            .Replace("{{ErrorMessage}}", Encode(notification.ErrorMessage ?? statusDescription), StringComparison.Ordinal)
+            .Replace("{{StatusDescription}}", Encode(statusDescription), StringComparison.Ordinal)
+            .Replace("{{TransactionReference}}", Encode(notification.TransactionReference ?? "-"), StringComparison.Ordinal);
+
+        await SendAsync(
+            "PaymentInitiatedRecipients",
+            "ABSA CAPI - Payment Initiation Status Report",
+            html,
+            cancellationToken,
+            isBodyHtml: true);
     }
 
     public Task NotifyFailureAsync(int orderNumber, string? reference, string? reason, CancellationToken cancellationToken = default) =>
@@ -41,7 +110,12 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             $"Order {orderNumber} reconciled against its Bank Hub payment statement.\nReference: {reference ?? "-"}",
             cancellationToken);
 
-    private async Task SendAsync(string recipientsKey, string subject, string body, CancellationToken cancellationToken)
+    private async Task SendAsync(
+        string recipientsKey,
+        string subject,
+        string body,
+        CancellationToken cancellationToken,
+        bool isBodyHtml = false)
     {
         var section = _configuration.GetSection("GpayNotifications");
         var host = section["SmtpHost"];
@@ -58,7 +132,13 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
 
         try
         {
-            using var message = new MailMessage { From = new MailAddress(from), Subject = subject, Body = body };
+            using var message = new MailMessage
+            {
+                From = new MailAddress(from),
+                Subject = subject,
+                Body = body,
+                IsBodyHtml = isBodyHtml
+            };
             foreach (var address in recipients.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 message.To.Add(address);
@@ -93,4 +173,6 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             _logger.LogError(ex, "Failed to send GPay payment notification. Subject: {Subject}", subject);
         }
     }
+
+    private static string Encode(string? value) => HtmlEncoder.Default.Encode(value ?? string.Empty);
 }

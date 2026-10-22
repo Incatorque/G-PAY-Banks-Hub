@@ -17,6 +17,9 @@ public sealed class BankCapabilityResolver : IBankCapabilityResolver
 
     public IInstantPaymentService GetInstantPayment(BankCode bank) => Resolve<IInstantPaymentService>(bank);
 
+    public IInstantPaymentService GetInstantPayment(string bank) =>
+        Resolve<IInstantPaymentService>(bank);
+
     public IBalanceService GetBalance(BankCode bank) => Resolve<IBalanceService>(bank);
 
     public IStatementService GetStatement(BankCode bank) => Resolve<IStatementService>(bank);
@@ -30,7 +33,17 @@ public sealed class BankCapabilityResolver : IBankCapabilityResolver
 
     private T Resolve<T>(BankCode bank) where T : notnull
     {
-        var key = bank.ToString();
+        return Resolve<T>(bank.ToString());
+    }
+
+    private T Resolve<T>(string bank) where T : notnull
+    {
+        if (string.IsNullOrWhiteSpace(bank))
+        {
+            throw new NotSupportedException("A bank key is required to resolve the bank capability.");
+        }
+
+        var key = bank.Trim();
         var service = _serviceProvider.GetKeyedService<T>(key);
 
         return service ?? throw new NotSupportedException(

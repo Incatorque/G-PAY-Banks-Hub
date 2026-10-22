@@ -1,7 +1,6 @@
 using GPay.Banking.Services.Absa;
 using GPay.Banking;
 using GPay.Banking.Domain;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using GPay.Banking.Services;
@@ -28,7 +27,6 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
     private readonly IAbsaRequestSigner _requestSigner;
     private readonly AbsaCapiOptions _options;
     private readonly ILogger<AbsaCapiClient> _logger;
-    private readonly IBankApiCallAuditor _auditor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AbsaCapiClient"/> class.
@@ -38,15 +36,13 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
         IAbsaSessionProvider sessionProvider,
         IAbsaRequestSigner requestSigner,
         IOptions<AbsaCapiOptions> options,
-        ILogger<AbsaCapiClient> logger,
-        IBankApiCallAuditor auditor)
+        ILogger<AbsaCapiClient> logger)
     {
         _httpClient = httpClient;
         _sessionProvider = sessionProvider;
         _requestSigner = requestSigner;
         _options = options.Value;
         _logger = logger;
-        _auditor = auditor;
     }
 
     /// <inheritdoc />
@@ -321,6 +317,11 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
             : new Uri(new Uri(_options.BaseUrl.TrimEnd('/') + "/"), relativePath.TrimStart('/'));
 
         using var request = new HttpRequestMessage(method, uri);
+        if (gpayOrderId is Guid orderId)
+        {
+            request.Options.Set(BankApiCallAuditMetadata.GpayOrderId, orderId);
+        }
+
         if (jsonBody is not null)
         {
             request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
@@ -328,61 +329,22 @@ public sealed class AbsaCapiClient : IAbsaCapiClient
 
         _requestSigner.ApplyHeaders(request, jsonBody);
 
-        var started = Stopwatch.StartNew();
-        int? statusCode = null;
-        string? responseBody = null;
-        string? errorCode = null;
-        var success = false;
-        try
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Absa CAPI {Method} {Uri} => {Status}",
+            method,
+            uri,
+            (int)response.StatusCode);
+
+        if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(responseBody))
         {
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-            statusCode = (int)response.StatusCode;
-            responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            success = response.IsSuccessStatusCode || !string.IsNullOrWhiteSpace(responseBody);
-
-            _logger.LogInformation(
-                "Absa CAPI {Method} {Uri} => {Status}",
-                method,
-                uri,
-                statusCode);
-
-            if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(responseBody))
-            {
-                errorCode = statusCode.ToString();
-                throw new HttpRequestException($"Absa CAPI call failed with status {statusCode}.");
-            }
-
-            return responseBody;
+            throw new HttpRequestException(
+                $"Absa CAPI call failed with status {(int)response.StatusCode}.");
         }
-        finally
-        {
-            started.Stop();
-            await AbsaCallAudit.WriteAsync(
-                _auditor,
-                _logger,
-                new BankApiCallAuditEntry
-                {
-                    GpayOrderId = gpayOrderId,
-                    Direction = "Outbound",
-                    Operation = OperationName(relativePath),
-                    HttpMethod = method.Method,
-                    Path = uri.AbsolutePath,
-                    HttpStatus = statusCode,
-                    RequestJson = AbsaApiPayloadRedactor.Redact(jsonBody),
-                    ResponseJson = AbsaApiPayloadRedactor.Redact(responseBody),
-                    DurationMs = started.ElapsedMilliseconds,
-                    Success = success,
-                    ErrorCode = errorCode
-                },
-                cancellationToken);
-        }
-    }
 
-    private static string OperationName(string relativePath)
-    {
-        var path = relativePath.Split('?', 2)[0].Trim('/');
-        var slash = path.LastIndexOf('/');
-        return slash >= 0 ? path[(slash + 1)..] : path;
+        return responseBody;
     }
 
     private static AbsaAvsResponse Deserialize(string body, string? correlationId)

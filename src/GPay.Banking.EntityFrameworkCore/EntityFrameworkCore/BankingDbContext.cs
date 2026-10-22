@@ -78,6 +78,48 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.Property(x => x.ToAccountId).HasColumnName("FkToAccountID");
             b.Property(x => x.ReferenceNumber).HasColumnName("ReferenceNumber");
             b.Property(x => x.UserId).HasColumnName("FkUserID");
+            b.Property(x => x.EntityBankStatementId).HasColumnName("FkEntityBankStatementID");
+        });
+
+        builder.Entity<GpayEntityBankStatementRow>(b =>
+        {
+            b.ToTable("EntityBankStatement", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("PkEntityBankStatementID");
+            b.Property(x => x.Description).HasColumnName("Description");
+            b.Property(x => x.ReferenceNumber).HasColumnName("ReferenceNumber");
+            b.Property(x => x.TransactionDate).HasColumnName("TransactionDate");
+            b.Property(x => x.Amount).HasColumnName("Amount");
+            b.Property(x => x.SyncDate).HasColumnName("SyncDate");
+            b.Property(x => x.Reconciled).HasColumnName("Reconciled");
+            b.Property(x => x.EntityId).HasColumnName("FkEntityID");
+            b.Property(x => x.AccountId).HasColumnName("FkAccountID");
+            b.Property(x => x.IsIntra).HasColumnName("IsIntra");
+            b.Property(x => x.IsProcessed).HasColumnName("IsProcessed");
+            b.Property(x => x.TransactionCodeId).HasColumnName("TransactionCodeId");
+            b.Property(x => x.SupplierBankReference).HasColumnName("SupplierBankReference");
+            b.Property(x => x.Active).HasColumnName("Active");
+        });
+
+        builder.Entity<GpayEntityBankStatementLogRow>(b =>
+        {
+            b.ToTable("EntityBankStatementLog", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("PkEntityBankStatementLog");
+            b.Property(x => x.EntityBankStatementId).HasColumnName("FKEntityBankStatementId");
+            b.Property(x => x.UpdatedDate).HasColumnName("UpdatedDate");
+            b.Property(x => x.UserId).HasColumnName("FKUserId");
+            b.Property(x => x.UpdateDescription).HasColumnName("UpdateDescription");
+            b.Property(x => x.IsCopied).HasColumnName("IsCopied");
+        });
+
+        builder.Entity<GpayTransactionCodeRow>(b =>
+        {
+            b.ToTable("TransactionCode", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("ID");
+            b.Property(x => x.Name).HasColumnName("Name");
+            b.Property(x => x.Active).HasColumnName("Active");
         });
 
         builder.Entity<GpayOrderHistoryRow>(b =>
@@ -117,10 +159,27 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkAccountID");
             b.Property(x => x.BankId).HasColumnName("FkBankID");
+            b.Property(x => x.CountryCurrencyId).HasColumnName("CountryCurrencyID");
             b.Property(x => x.Active).HasColumnName("Active");
             b.Property(x => x.EntityId).HasColumnName("FkEntityID");
             b.Property(x => x.AccountNumber).HasColumnName("AccountNumber");
             b.Property(x => x.BranchCode).HasColumnName("BranchCode");
+        });
+
+        builder.Entity<GpayCountryCurrencyRow>(b =>
+        {
+            b.ToTable("CountryCurrency", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("ID");
+            b.Property(x => x.CurrencyId).HasColumnName("CurrencyID");
+        });
+
+        builder.Entity<GpayCurrencyRow>(b =>
+        {
+            b.ToTable("Currency", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("ID");
+            b.Property(x => x.Code).HasColumnName("code");
         });
 
         builder.Entity<GpayBankRow>(b =>
