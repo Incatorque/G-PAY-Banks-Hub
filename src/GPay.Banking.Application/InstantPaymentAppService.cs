@@ -2,7 +2,6 @@ using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Domain.Dtos;
 using GPay.Banking.Helpers;
-using GPay.Banking.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
@@ -14,24 +13,24 @@ namespace GPay.Banking;
 /// Instant payment AppService — PayShap / RTC initiate and status enquiry.
 /// </summary>
 /// <remarks>
-/// Routes under <c>/api/app/instant-payment/*</c>. Requires JWT and <c>Banking.Payments.*</c> permissions.
+/// Routes under <c>/api/app/instant-payment/*</c>.
 /// </remarks>
-[Authorize(PaymentsPermissions.Default)]
+[Authorize]
 public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppService
 {
     private readonly IInstantPaymentInitiator _initiator;
-    private readonly IBankCapabilityResolver _resolver;
+    private readonly IBankRouterService _bankRouter;
     private readonly IRepository<BankHubApiCall, Guid> _apiCallRepository;
     private readonly IGpayOrderSync _gpayOrderSync;
 
     public InstantPaymentAppService(
         IInstantPaymentInitiator initiator,
-        IBankCapabilityResolver resolver,
+        IBankRouterService bankRouter,
         IRepository<BankHubApiCall, Guid> apiCallRepository,
         IGpayOrderSync gpayOrderSync)
     {
         _initiator = initiator;
-        _resolver = resolver;
+        _bankRouter = bankRouter;
         _apiCallRepository = apiCallRepository;
         _gpayOrderSync = gpayOrderSync;
     }
@@ -41,8 +40,7 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
     /// </summary>
     /// <param name="input">Debit/credit accounts, amount, reference, rail, and target <c>Bank</c>.</param>
     /// <returns>Submission result with status, bank references, and <c>correlationId</c>.</returns>
-    /// <remarks>Permission: <c>Banking.Payments.Initiate</c>. Amount must be &gt; 0. Default rail <c>RPP</c> (PayShap).</remarks>
-    [Authorize(PaymentsPermissions.Initiate)]
+    /// <remarks>Amount must be &gt; 0.</remarks>
     public Task<PaymentResultDto> InitiateAsync(InitiatePaymentRequestDto input) => _initiator.InitiateAsync(input);
 
     /// <summary>
@@ -50,8 +48,7 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
     /// </summary>
     /// <param name="input">Bank plus <c>transactionReference</c> and/or <c>apiReference</c> (at least one required).</param>
     /// <returns>Normalized status payload from the bank.</returns>
-    /// <remarks>Permission: <c>Banking.Payments.View</c>. Use as fallback when bank callbacks are missed.</remarks>
-    [Authorize(PaymentsPermissions.View)]
+    /// <remarks>Use as fallback when bank callbacks are missed.</remarks>
     public async Task<PaymentResultDto> GetStatusAsync(PaymentStatusRequestDto input)
     {
         if (string.IsNullOrWhiteSpace(input.TransactionReference) && string.IsNullOrWhiteSpace(input.ApiReference))
@@ -61,18 +58,20 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
 
         var bank = BankCodeParser.Parse(input.Bank);
         var correlationId = Guid.NewGuid().ToString("N");
-        var service = _resolver.GetInstantPayment(bank);
         var bankCode = BankCodeParser.ToStorageCode(bank);
         var paymentCall = await FindPaymentCallAsync(
             bankCode,
             input.TransactionReference,
             input.ApiReference);
-        var result = await service.GetStatusAsync(new PaymentStatusRequest
-        {
-            TransactionReference = input.TransactionReference,
-            ApiReference = input.ApiReference,
-            GpayOrderId = paymentCall?.GpayOrderId
-        }, correlationId);
+        var result = await _bankRouter.GetPaymentStatusAsync(
+            bank,
+            new PaymentStatusRequest
+            {
+                TransactionReference = input.TransactionReference,
+                ApiReference = input.ApiReference,
+                GpayOrderId = paymentCall?.GpayOrderId
+            },
+            correlationId);
 
         var dto = BankPaymentResultMapper.FromStatus(result, correlationId);
         if (result.Success && result.Data is not null && paymentCall?.GpayOrderId is Guid gpayOrderId)

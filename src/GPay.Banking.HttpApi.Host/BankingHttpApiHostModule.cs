@@ -57,7 +57,6 @@ public class BankingHttpApiHostModule : AbpModule
         }
         else
         {
-            // No JWT — [Authorize] / permission attributes still succeed.
             context.Services.AddAuthorization(options =>
             {
                 options.DefaultPolicy = new AuthorizationPolicyBuilder()
@@ -130,9 +129,6 @@ public class BankingHttpApiHostModule : AbpModule
     }
 }
 
-/// <summary>
-/// When <c>AuthServer:RequireGpayAuth</c> is false, satisfies every authorization requirement.
-/// </summary>
 internal sealed class AllowWhenGpayAuthDisabledHandler : IAuthorizationHandler
 {
     public Task HandleAsync(AuthorizationHandlerContext context)
@@ -145,3 +141,4 @@ internal sealed class AllowWhenGpayAuthDisabledHandler : IAuthorizationHandler
         return Task.CompletedTask;
     }
 }
+

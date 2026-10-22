@@ -2,7 +2,6 @@ using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Domain.Dtos;
 using GPay.Banking.Helpers;
-using GPay.Banking.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
@@ -14,9 +13,8 @@ namespace GPay.Banking;
 /// </summary>
 /// <remarks>
 /// Route: <c>POST /api/app/transaction-history/get</c>.
-/// Requires JWT and <c>Banking.TransactionHistory.View</c>.
 /// </remarks>
-[Authorize(TransactionHistoryPermissions.Default)]
+[Authorize]
 public class TransactionHistoryAppService : ApplicationService, ITransactionHistoryAppService
 {
     private readonly IBankCapabilityResolver _resolver;
@@ -31,8 +29,6 @@ public class TransactionHistoryAppService : ApplicationService, ITransactionHist
     /// </summary>
     /// <param name="input">Bank, account number, from/to dates, optional page size.</param>
     /// <returns>Normalized statement lines plus <c>correlationId</c>.</returns>
-    /// <remarks>Permission: <c>Banking.TransactionHistory.View</c>.</remarks>
-    [Authorize(TransactionHistoryPermissions.View)]
     public async Task<TransactionHistoryResultDto> GetAsync(TransactionHistoryRequestDto input)
     {
         if (string.IsNullOrWhiteSpace(input.AccountNumber))

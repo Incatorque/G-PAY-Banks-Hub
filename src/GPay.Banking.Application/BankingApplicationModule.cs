@@ -1,3 +1,4 @@
+using GPay.Banking.Auditing;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp;
 using Volo.Abp.Application;
@@ -21,19 +22,26 @@ public class BankingApplicationModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
+
         Configure<AvsBatchOptions>(configuration.GetSection(AvsBatchOptions.SectionName));
+
         Configure<BankCallbackOptions>(configuration.GetSection(BankCallbackOptions.SectionName));
+
         var paymentPollSection = configuration.GetSection(PaymentStatusPollOptions.SectionName);
+
         if (!paymentPollSection.GetChildren().Any())
         {
             paymentPollSection = configuration.GetSection("AbsaStatusPoll");
         }
 
         Configure<PaymentStatusPollOptions>(paymentPollSection);
-        Configure<BackgroundWorkers.BankPaymentIntakeOptions>(configuration.GetSection(BackgroundWorkers.BankPaymentIntakeOptions.SectionName));
-        context.Services.PostConfigure<BackgroundWorkers.BankPaymentIntakeOptions>(options =>
+
+        Configure<BankPaymentIntakeOptions>(configuration.GetSection(BankPaymentIntakeOptions.SectionName));
+
+        context.Services.PostConfigure<BankPaymentIntakeOptions>(options =>
         {
-            var bankHubSection = configuration.GetSection(BackgroundWorkers.BankPaymentIntakeOptions.SectionName);
+            var bankHubSection = configuration.GetSection(BankPaymentIntakeOptions.SectionName);
+
             var legacyAbsaSection = bankHubSection.GetSection("Absa");
 
             if (string.IsNullOrWhiteSpace(bankHubSection["PollPeriodSeconds"]))
@@ -55,6 +63,7 @@ public class BankingApplicationModule : AbpModule
         context.Services.AddScoped<IInstantPaymentInitiator, InstantPaymentInitiator>();
 
         context.Services.AddHttpContextAccessor();
+
         context.Services.AddScoped<Domain.IBankApiCallAuditor, BankApiCallAuditor>();
 
         Configure<AbpAutoMapperOptions>(options =>
@@ -66,8 +75,9 @@ public class BankingApplicationModule : AbpModule
     public override async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
     {
         await base.OnApplicationInitializationAsync(context);
+
         await context.AddBackgroundWorkerAsync<BackgroundWorkers.PaymentStatusWorker>();
+
         await context.AddBackgroundWorkerAsync<BackgroundWorkers.BankPaymentOrderWorker>();
     }
 }
-

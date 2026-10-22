@@ -1,25 +1,19 @@
-using System.Text.Json;
-using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Domain.Dtos;
-using GPay.Banking.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BackgroundWorkers;
-using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Threading;
 using Volo.Abp.Uow;
 
 namespace GPay.Banking.BackgroundWorkers;
 
-/// <summary>Polls bank status using GPay order state and the existing bank API audit log.</summary>
+/// <summary>Routes today's open GPay orders to their bank status services and syncs results.</summary>
 public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 {
-    public PaymentStatusWorker(
-        AbpAsyncTimer timer,
-        IServiceScopeFactory serviceScopeFactory)
-        : base(timer, serviceScopeFactory)
+    public PaymentStatusWorker(AbpAsyncTimer timer, IServiceScopeFactory serviceScopeFactory) : base(timer, serviceScopeFactory)
     {
         Timer.Period = 60_000;
     }
@@ -27,9 +21,10 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
     protected override async Task DoWorkAsync(PeriodicBackgroundWorkerContext workerContext)
     {
         var services = workerContext.ServiceProvider;
+
         var options = services.GetRequiredService<IOptions<PaymentStatusPollOptions>>().Value;
-        var periodSeconds = Math.Max(15, options.PeriodSeconds);
-        Timer.Period = periodSeconds * 1000;
+
+        Timer.Period = Math.Max(15, options.PeriodSeconds) * 1000;
 
         if (!options.Enabled)
         {
@@ -37,106 +32,51 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
         }
 
         var logger = services.GetRequiredService<ILogger<PaymentStatusWorker>>();
-        var uowManager = services.GetRequiredService<IUnitOfWorkManager>();
-        var apiCalls = services.GetRequiredService<IRepository<BankHubApiCall, Guid>>();
-        var resolver = services.GetRequiredService<IBankCapabilityResolver>();
+
         var gpay = services.GetRequiredService<IGpayOrderSync>();
-        var batchSize = Math.Max(1, options.BatchSize);
-        var cutoff = DateTime.UtcNow.AddSeconds(-periodSeconds);
+
+        var bankRouter = services.GetRequiredService<IBankRouterService>();
+
+        var backgroundJobs = services.GetRequiredService<IBackgroundJobManager>();
+
+        var uowManager = services.GetRequiredService<IUnitOfWorkManager>();
 
         using var uow = uowManager.Begin(requiresNew: true, isTransactional: true);
 
-        var calls = await apiCalls.GetListAsync(call =>
-            call.Direction == "Outbound" &&
-            call.GpayOrderId.HasValue);
+        var orders = await gpay.GetOrdersForStatusCheckAsync();
 
-        var latestInitiations = calls
-            .Where(call => string.Equals(call.Operation, "initiate", StringComparison.OrdinalIgnoreCase))
-            .Select(call =>
-            {
-                var (transactionReference, apiReference) = ReadPaymentReferences(call.ResponseJson);
-                return new
-                {
-                    Call = call,
-                    TransactionReference = transactionReference,
-                    ApiReference = apiReference
-                };
-            })
-            .Where(payment =>
-                !string.IsNullOrWhiteSpace(payment.TransactionReference) ||
-                !string.IsNullOrWhiteSpace(payment.ApiReference))
-            .GroupBy(payment => payment.Call.GpayOrderId!.Value)
-            .Select(group => group.OrderByDescending(payment => payment.Call.CreationTime).First())
-            .OrderBy(payment => payment.Call.CreationTime)
-            .ToList();
-
-        var latestStatusChecks = calls
-            .Where(call => string.Equals(call.Operation, "Status", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(call => call.GpayOrderId!.Value)
-            .ToDictionary(group => group.Key, group => group.Max(call => call.CreationTime));
-
-        var due = new List<(BankHubApiCall Initiation, string? TransactionReference, string? ApiReference)>();
-        foreach (var payment in latestInitiations)
+        foreach (var order in orders)
         {
-            var initiation = payment.Call;
-            var orderId = initiation.GpayOrderId!.Value;
-            var orderStatus = await gpay.GetOrderStatusAsync(orderId);
-            if (!IsStatusPollable(orderStatus))
-            {
-                continue;
-            }
-
-            if (latestStatusChecks.TryGetValue(orderId, out var lastCheck) && lastCheck > cutoff)
-            {
-                continue;
-            }
-
-            due.Add((initiation, payment.TransactionReference, payment.ApiReference));
-            if (due.Count >= batchSize)
-            {
-                break;
-            }
-        }
-
-        if (due.Count == 0)
-        {
-            await uow.CompleteAsync();
-            return;
-        }
-
-        logger.LogInformation("Payment status poll checking {Count} GPay order(s).", due.Count);
-
-        foreach (var payment in due)
-        {
-            var initiation = payment.Initiation;
-            var gpayOrderId = initiation.GpayOrderId!.Value;
             try
             {
-                var bank = BankCodeParser.Parse(initiation.BankCode);
-                var paymentService = resolver.GetInstantPayment(bank);
-                var result = await paymentService.GetStatusAsync(
+                var bank = GPay.Banking.Helpers.BankCodeParser.Parse(order.Bank);
+
+                var result = await bankRouter.GetPaymentStatusAsync(
+                    bank,
                     new PaymentStatusRequest
                     {
-                        GpayOrderId = gpayOrderId,
-                        TransactionReference = payment.TransactionReference,
-                        ApiReference = payment.ApiReference
+                        GpayOrderId = order.OrderId,
+                        TransactionReference = order.Reference
                     },
                     Guid.NewGuid().ToString("N"));
 
                 if (!result.Success || result.Data is null)
                 {
                     logger.LogWarning(
-                        "Bank status check failed for GPay order {GpayOrderId}: {Message}",
-                        gpayOrderId,
+                        "Status check at {Bank} failed for GPay order {OrderNumber}: {Message}",
+                        order.Bank,
+                        order.OrderNumber,
                         result.Error?.Message ?? "No status data returned.");
                     continue;
                 }
 
                 var status = result.Data;
+                var previousOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
+
                 await gpay.ApplyPaymentAsync(new GpayPaymentSyncRequest
                 {
-                    GpayOrderId = gpayOrderId,
-                    Reference = status.Reference,
+                    GpayOrderId = order.OrderId,
+                    Reference = status.Reference ?? order.Reference,
                     TransactionReference = status.TransactionReference,
                     SourceStatementRef = status.SourceStatementRef,
                     TargetStatementRef = status.TargetStatementRef,
@@ -144,110 +84,86 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                     Note = status.ResultDescription,
                     Amount = status.Amount ?? 0m
                 });
+
+                var normalizedStatus = status.RawStatusLabel ?? status.Status;
+                var updatedOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
+                var orderStatusChanged = !string.Equals(
+                    previousOrderStatus,
+                    updatedOrderStatus,
+                    StringComparison.OrdinalIgnoreCase);
+
+                if (orderStatusChanged &&
+                    (IsSuccessfulStatus(normalizedStatus) || IsFailureStatus(normalizedStatus)))
+                {
+                    try
+                    {
+                        await backgroundJobs.EnqueueAsync(new GpayPaymentInitiatedNotification
+                        {
+                            Bank = order.Bank,
+                            OrderNumber = order.OrderNumber,
+                            Amount = status.Amount ?? order.Amount,
+                            Currency = status.Currency ?? order.Currency,
+                            FromAccountNumber = order.FromAccountNumber,
+                            ToAccountNumber = order.ToAccountNumber,
+                            Reference = status.Reference ?? order.Reference,
+                            Status = normalizedStatus,
+                            IsStatusCheck = true,
+                            IsError = IsFailureStatus(normalizedStatus),
+                            ErrorCode = status.ErrorCode ?? normalizedStatus,
+                            ErrorMessage = status.ResultDescription,
+                            StatusDescription = status.ResultDescription ?? "Payment successfully processed and settled.",
+                            TransactionReference = status.TransactionReference ?? status.TransactionId
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(
+                            ex,
+                            "Failed to queue completed payment status email for GPay order {OrderNumber}.",
+                            order.OrderNumber);
+                    }
+                }
+
+                logger.LogInformation(
+                    "Updated GPay order {OrderNumber} from {Bank} status {Status}.",
+                    order.Bank,
+                    order.OrderNumber,
+                    status.RawStatusLabel ?? status.Status);
             }
             catch (NotSupportedException ex)
             {
                 logger.LogWarning(
                     ex,
-                    "Skipping GPay order {GpayOrderId}; no status adapter is registered for bank {BankCode}.",
-                    gpayOrderId,
-                    initiation.BankCode);
+                    "Skipping GPay order {OrderNumber}; no payment status service is registered for bank {Bank}.",
+                    order.OrderNumber,
+                    order.Bank);
             }
             catch (Exception ex)
             {
                 logger.LogError(
                     ex,
-                    "Status poll failed for GPay order {GpayOrderId} at bank {BankCode}.",
-                    gpayOrderId,
-                    initiation.BankCode);
+                    "Status check at {Bank} failed for GPay order {OrderNumber}.",
+                    order.Bank,
+                    order.OrderNumber);
             }
         }
 
         await uow.CompleteAsync();
     }
 
-    private static bool IsStatusPollable(string? status)
+    private static bool IsSuccessfulStatus(string? status) =>
+        string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsFailureStatus(string? status)
     {
-        var normalized = new string((status ?? string.Empty)
-            .Where(char.IsLetterOrDigit)
-            .Select(char.ToUpperInvariant)
-            .ToArray());
-
-        return normalized is "SUBMITTED" or "SUBMITTEDTOQUEUE" or "PENDINGBANKTRANSFER" or "BANKTRANSFERPROCESSING";
-    }
-
-    private static (string? TransactionReference, string? ApiReference) ReadPaymentReferences(string? responseJson)
-    {
-        if (string.IsNullOrWhiteSpace(responseJson))
-        {
-            return (null, null);
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(responseJson);
-            if (document.RootElement.ValueKind != JsonValueKind.Object ||
-                !TryGetProperty(document.RootElement, "Correlations", out var correlations) ||
-                correlations.ValueKind != JsonValueKind.Array)
-            {
-                return (null, null);
-            }
-
-            string? transactionReference = null;
-            string? apiReference = null;
-            foreach (var correlation in correlations.EnumerateArray())
-            {
-                if (correlation.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                if (!TryGetProperty(correlation, "Correlation", out var typeElement) &&
-                    !TryGetProperty(correlation, "Type", out typeElement))
-                {
-                    continue;
-                }
-
-                var type = typeElement.ValueKind == JsonValueKind.Number
-                    ? typeElement.GetInt32()
-                    : int.TryParse(typeElement.ToString(), out var parsedType) ? parsedType : 0;
-                var value = ReadString(correlation, "CorrelationId") ?? ReadString(correlation, "Value");
-
-                if (type == 3)
-                {
-                    apiReference = value;
-                }
-                else if (type == 4)
-                {
-                    transactionReference = value;
-                }
-            }
-
-            return (transactionReference, apiReference);
-        }
-        catch (JsonException)
-        {
-            return (null, null);
-        }
-    }
-
-    private static string? ReadString(JsonElement element, string propertyName) =>
-        TryGetProperty(element, propertyName, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
-
-    private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
-            {
-                value = property.Value;
-                return true;
-            }
-        }
-
-        value = default;
-        return false;
+        var normalizedStatus = status?.Trim();
+        return normalizedStatus?.Contains("FAIL", StringComparison.OrdinalIgnoreCase) == true ||
+               normalizedStatus?.Contains("ERROR", StringComparison.OrdinalIgnoreCase) == true ||
+               normalizedStatus?.Contains("DUPLICATE", StringComparison.OrdinalIgnoreCase) == true ||
+               normalizedStatus?.Contains("REJECT", StringComparison.OrdinalIgnoreCase) == true ||
+               normalizedStatus?.Contains("REVERS", StringComparison.OrdinalIgnoreCase) == true ||
+               normalizedStatus?.Contains("UNSUCCESSFUL", StringComparison.OrdinalIgnoreCase) == true ||
+               normalizedStatus?.Contains("CANCEL", StringComparison.OrdinalIgnoreCase) == true;
     }
 }

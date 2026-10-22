@@ -3,7 +3,6 @@ using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Domain.Dtos;
 using GPay.Banking.Helpers;
-using GPay.Banking.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Volo.Abp;
@@ -19,9 +18,9 @@ namespace GPay.Banking;
 /// Account verification (AVS) AppService — single enquiry and async batch APIs.
 /// </summary>
 /// <remarks>
-/// Routes under <c>/api/app/account-verification/*</c>. Requires JWT and <c>Banking.Avs.*</c> permissions.
+/// Routes under <c>/api/app/account-verification/*</c>.
 /// </remarks>
-[Authorize(AvsPermissions.Default)]
+[Authorize]
 public class AccountVerificationAppService : ApplicationService, IAccountVerificationAppService
 {
     private readonly IBankCapabilityResolver _resolver;
@@ -52,8 +51,7 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// </summary>
     /// <param name="input">Account, branch, identity/name fields, and target <c>Bank</c>.</param>
     /// <returns>Normalized match flags, result codes, <c>correlationId</c>, and persisted AVS <c>recordId</c>.</returns>
-    /// <remarks>Permission: <c>Banking.Avs.Verify</c>. Persists a <c>BankHubAvsRecord</c>.</remarks>
-    [Authorize(AvsPermissions.Verify)]
+    /// <remarks>Persists a <c>BankHubAvsRecord</c>.</remarks>
     public async Task<AccountVerificationResultDto> VerifyAsync(VerifyAccountRequestDto input)
     {
         var correlationId = Guid.NewGuid().ToString("N");
@@ -110,10 +108,8 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// <param name="input">Batch metadata and ordered verification items.</param>
     /// <returns>Queued batch id and initial processing status.</returns>
     /// <remarks>
-    /// Permission: <c>Banking.Avs.Upload</c>.
     /// Max items: <c>AvsBatch:MaxItems</c> (default 20 000). Processed by background job; poll get-batch for progress.
     /// </remarks>
-    [Authorize(AvsPermissions.Upload)]
     public async Task<UploadAvsBatchResultDto> SubmitBatchAsync(SubmitAvsBatchRequestDto input)
     {
         if (input.Items is null || input.Items.Count == 0)
@@ -189,8 +185,6 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// Returns batch header progress (counts, percent complete, status).
     /// </summary>
     /// <param name="id">Batch id returned by submit-batch.</param>
-    /// <remarks>Permission: <c>Banking.Avs.View</c>.</remarks>
-    [Authorize(AvsPermissions.View)]
     public async Task<BankHubAvsBatchDto> GetBatchAsync(Guid id)
     {
         var batch = await _batchRepository.GetAsync(id);
@@ -217,8 +211,6 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// Returns all AVS records for a batch, ordered by row number.
     /// </summary>
     /// <param name="batchId">Batch id.</param>
-    /// <remarks>Permission: <c>Banking.Avs.View</c>.</remarks>
-    [Authorize(AvsPermissions.View)]
     public async Task<List<BankHubAvsRecordDto>> GetBatchRecordsAsync(Guid batchId)
     {
         var records = await _recordRepository.GetListAsync(x => x.BatchId == batchId);

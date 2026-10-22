@@ -15,18 +15,7 @@ This document mirrors what Swagger exposes so callers can read offline.
 | AVS + Instant payments + Transaction history | **JWT Bearer** (`Authorization: Bearer {token}`). Audience `GPay`. |
 | Payment callbacks | **Anonymous**. Shared bank `Token` in JSON body + optional IP/domain allow-list. |
 
-### Permissions
-
-| Permission | Used by |
-|------------|---------|
-| `Banking.Avs.Verify` | `POST .../account-verification/verify` |
-| `Banking.Avs.Upload` | `POST .../account-verification/submit-batch` |
-| `Banking.Avs.View` | Batch progress / records |
-| `Banking.Payments.Initiate` | `POST .../instant-payment/initiate`; callback register / amend / unregister |
-| `Banking.Payments.View` | Status enquiry + get record; callback defaults |
-| `Banking.TransactionHistory.View` | `POST .../transaction-history/get` |
-
-Click **Authorize** in Swagger UI and paste a Bearer token for protected operations.
+When JWT authentication is enabled, click **Authorize** in Swagger UI and paste a Bearer token.
 
 ---
 
@@ -38,12 +27,12 @@ ABP conventional controllers map AppServices to:
 
 ### Account verification (AVS)
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `POST` | `/api/app/account-verification/verify` | Verify | Single AVS enquiry; persists `BankHubAvsRecord`. |
-| `POST` | `/api/app/account-verification/submit-batch` | Upload | Async batch (max `AvsBatch:MaxItems`, default 20 000). |
-| `GET` | `/api/app/account-verification/batch/{id}` | View | Batch header / progress. |
-| `GET` | `/api/app/account-verification/batch-records` | View | All records for `batchId` query. |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/app/account-verification/verify` | Single AVS enquiry; persists `BankHubAvsRecord`. |
+| `POST` | `/api/app/account-verification/submit-batch` | Async batch (max `AvsBatch:MaxItems`, default 20 000). |
+| `GET` | `/api/app/account-verification/batch/{id}` | Batch header / progress. |
+| `GET` | `/api/app/account-verification/batch-records` | All records for `batchId` query. |
 
 **Notes**
 
@@ -53,11 +42,11 @@ ABP conventional controllers map AppServices to:
 
 ### Instant payments
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `POST` | `/api/app/instant-payment/initiate` | Initiate | Submit PayShap/RTC payment; audits the bank API call and updates the linked GPay order. |
-| `POST` | `/api/app/instant-payment/get-status` | View | Live bank status; updates local record when found. |
-| `GET` | `/api/app/instant-payment/{id}` | View | Local record only (no bank call). |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/app/instant-payment/initiate` | Submit PayShap/RTC payment; audits the bank API call and updates the linked GPay order. |
+| `POST` | `/api/app/instant-payment/get-status` | Live bank status; updates local record when found. |
+| `GET` | `/api/app/instant-payment/{id}` | Local record only (no bank call). |
 
 **Rails:** `RPP` (PayShap, default), `IIP` (RTC), `PAAF`.
 
@@ -67,9 +56,9 @@ ABP conventional controllers map AppServices to:
 
 ### Transaction history
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `POST` | `/api/app/transaction-history/get` | View | Account statement lines for an inclusive date range. |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/app/transaction-history/get` | Account statement lines for an inclusive date range. |
 
 **Request:** `bank`, `accountNumber`, `fromDate`, `toDate`, optional `pageSize`.
 
@@ -87,12 +76,12 @@ ABP conventional controllers map AppServices to:
 
 ### Callback registration (channel admin)
 
-| Method | Path | Permission | Description |
-|--------|------|------------|-------------|
-| `GET` | `/api/app/callback-registration/defaults` | View | Recommended inbound URI + configured AbsaCapi defaults (no bank call). |
-| `POST` | `/api/app/callback-registration/register` | Initiate | Absa `POST /api/PaymentCallback/Register`. |
-| `POST` | `/api/app/callback-registration/amend` | Initiate | Re-register with new Uri/Token/SupportEmail (Absa has no separate Amend). |
-| `POST` | `/api/app/callback-registration/unregister` | Initiate | Absa `POST /api/PaymentCallback/UnRegister`. |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/app/callback-registration/defaults` | Recommended inbound URI + configured AbsaCapi defaults (no bank call). |
+| `POST` | `/api/app/callback-registration/register` | Absa `POST /api/PaymentCallback/Register`. |
+| `POST` | `/api/app/callback-registration/amend` | Re-register with new Uri/Token/SupportEmail (Absa has no separate Amend). |
+| `POST` | `/api/app/callback-registration/unregister` | Absa `POST /api/PaymentCallback/UnRegister`. |
 
 **Register/amend body:** `bank`, `uri`, `token`, `supportEmail` (omit fields to use `AbsaCapi:PaymentCallback*`). HTTPS port **443** only for live Absa. Keep `BankCallbacks:Banks:Absa:PaymentToken` equal to the registered token.
 

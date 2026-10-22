@@ -21,7 +21,7 @@ Angular ops UI (web/)         →  dashboards / progress only (not primary paylo
 |---------|------|
 | `GPay.Banking.Domain.Shared` | Enums, options (`AbsaCapi`, `AvsBatch`, `AbsaCallback`) |
 | `GPay.Banking.Domain` | Capability ports + `BankHub*` aggregates |
-| `GPay.Banking.Application.Contracts` | AppService interfaces, DTOs, permissions |
+| `GPay.Banking.Application.Contracts` | AppService interfaces and DTOs |
 | `GPay.Banking.Application` | AppServices + `AvsBatchProcessJob` |
 | `GPay.Banking.EntityFrameworkCore` | Bank Hub-only `BankingDbContext` for `AppBankHub*` records |
 | `GPay.Banking.HttpApi` | Callbacks controller |
@@ -45,17 +45,17 @@ Legacy Orchestrator / RabbitMQ code lives under `src\_legacy\` (do not deploy). 
 
 | Method | Path | Auth |
 |--------|------|------|
-| `POST` | `/api/app/account-verification/verify` | JWT + `Banking.Avs.Verify` |
-| `POST` | `/api/app/account-verification/submit-batch` | JWT + `Banking.Avs.Upload` |
-| `GET` | `/api/app/account-verification/batch/{id}` | JWT + `Banking.Avs.View` |
-| `GET` | `/api/app/account-verification/batch-records?batchId={id}` | JWT + `Banking.Avs.View` |
-| `POST` | `/api/app/instant-payment/initiate` | JWT + `Banking.Payments.Initiate` |
-| `POST` | `/api/app/instant-payment/get-status` | JWT + `Banking.Payments.View` |
-| `GET` | `/api/app/instant-payment/{id}` | JWT + `Banking.Payments.View` |
-| `POST` | `/api/app/transaction-history/get` | JWT + `Banking.TransactionHistory.View` |
+| `POST` | `/api/app/account-verification/verify` | JWT Bearer when enabled |
+| `POST` | `/api/app/account-verification/submit-batch` | JWT Bearer when enabled |
+| `GET` | `/api/app/account-verification/batch/{id}` | JWT Bearer when enabled |
+| `GET` | `/api/app/account-verification/batch-records?batchId={id}` | JWT Bearer when enabled |
+| `POST` | `/api/app/instant-payment/initiate` | JWT Bearer when enabled |
+| `POST` | `/api/app/instant-payment/get-status` | JWT Bearer when enabled |
+| `GET` | `/api/app/instant-payment/{id}` | JWT Bearer when enabled |
+| `POST` | `/api/app/transaction-history/get` | JWT Bearer when enabled |
 | `POST` | `/api/app/callback/process-payment?bank=Absa` | Bank Token + IP allow-list (no JWT) |
 
-Set `AuthServer:RequireGpayAuth` to `false` to disable JWT (Swagger **Authorize** is hidden; AppService `[Authorize]` is bypassed). Callbacks still use bank token checks.
+Set `AuthServer:RequireGpayAuth` to `false` to disable JWT. Callbacks still use bank token checks.
 
 In Swagger UI use **Authorize** with a Bearer token for protected operations when auth is on. Callback body is Absa-native JSON.
 

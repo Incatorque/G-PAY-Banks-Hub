@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Initiated</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Google Sans', Roboto, Arial, sans-serif; color: #202124; width: 100%;">
+
+  <!-- Google Green Top Accent Line -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td height="4" style="background-color: #0f9d58;"></td>
+    </tr>
+  </table>
+
+  <!-- Full-Width Content Container -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding: 32px 5%; width: 100%;">
+    <tr>
+      <td>
+        
+        <!-- Header Row with Logo & Discrete Dev Badge -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 28px;">
+          <tr>
+            <td align="left" vertical-align="middle">
+              <img src="https://www.gpay.co.za/images/logo/favicon.ico" alt="G-PAY" height="36" style="display: block;">
+            </td>
+            <td align="right" vertical-align="middle">
+              <span style="background-color: #fff7ed; color: #9a3412; border: 1px solid #ffedd5; font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 16px; letter-spacing: 0.6px; text-transform: uppercase;">
+                &#9679; {{EnvironmentBadge}}
+              </span>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Main Title -->
+        <h1 style="margin: 0 0 6px 0; font-size: 22px; font-weight: 500; color: #202124;">Payment initiated</h1>
+        <p style="margin: 0 0 28px 0; font-size: 14px; color: #5f6368;">Your payment request has been received by <strong>{{BankName}}</strong>.</p>
+
+        <!-- Main Amount Display -->
+        <div style="background-color: #e6f4ea; border-radius: 8px; padding: 20px 24px; margin-bottom: 28px;">
+          <div style="font-size: 11px; font-weight: 600; color: #137333; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Amount</div>
+          <div style="font-size: 32px; font-weight: 400; color: #0d652d;">{{Currency}} {{Amount}}</div>
+        </div>
+
+        <!-- Minimal Details Table -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size: 14px; border-collapse: collapse;">
+          <tr style="border-bottom: 1px solid #f1f3f4;">
+            <td style="padding: 12px 0; color: #5f6368; width: 30%;">Order number</td>
+            <td style="padding: 12px 0; color: #202124; font-weight: 500; text-align: right;">{{OrderNumber}}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f3f4;">
+            <td style="padding: 12px 0; color: #5f6368;">Paid from account</td>
+            <td style="padding: 12px 0; color: #202124; font-weight: 500; text-align: right;">{{FromAccountNumber}}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f3f4;">
+            <td style="padding: 12px 0; color: #5f6368;">Paid to account</td>
+            <td style="padding: 12px 0; color: #202124; font-weight: 500; text-align: right;">{{ToAccountNumber}}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f3f4;">
+            <td style="padding: 12px 0; color: #5f6368;">Reference</td>
+            <td style="padding: 12px 0; color: #202124; text-align: right;">{{Reference}}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #f1f3f4;">
+            <td style="padding: 12px 0; color: #5f6368;">Date</td>
+            <td style="padding: 12px 0; color: #202124; text-align: right;">{{Date}}</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 0; color: #5f6368;">ABSA status</td>
+            <td style="padding: 12px 0; color: #137333; font-weight: 500; text-align: right;">{{Status}}</td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+  <!-- Full-Width Footer -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border-top: 1px solid #e8eaed; padding: 24px 5%;">
+    <tr>
+      <td style="font-size: 12px; color: #70757a; line-height: 1.6; text-align: left;">
+        <p style="margin: 0 0 6px 0;">This is an automated email and is meant for internal use only. Please do not reply directly to this message.</p>
+        <p style="margin: 0; color: #9aa0a6;">Copyright &copy; 2026 G-PAY™. All rights reserved.</p>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

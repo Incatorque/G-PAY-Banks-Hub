@@ -1,7 +1,5 @@
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
-using GPay.Banking.Services.Absa;
-using GPay.Banking.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,7 +9,7 @@ using Volo.Abp.Uow;
 
 namespace GPay.Banking.BackgroundWorkers;
 
-/// <summary>Polls GPay PRS orders and routes each enabled bank to its payment adapter.</summary>
+/// <summary>Polls G-PAY� PRS orders and routes each enabled bank to its payment adapter.</summary>
 public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 {
     public BankPaymentOrderWorker(AbpAsyncTimer timer, IServiceScopeFactory serviceScopeFactory) : base(timer, serviceScopeFactory)
@@ -24,8 +22,6 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
         var services = workerContext.ServiceProvider;
 
         var options = services.GetRequiredService<IOptions<BankPaymentIntakeOptions>>().Value;
-
-        var absaOptions = services.GetRequiredService<IOptions<AbsaCapiOptions>>().Value;
 
         Timer.Period = Math.Max(30, options.PollPeriodSeconds) * 1000;
 
@@ -66,23 +62,6 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
         {
             try
             {
-                var bank = BankCodeParser.Parse(order.Bank);
-
-                var bankOptions = options.ForBank(bank);
-
-                var configuredSourceAccount = bankOptions.SourceAccountNumber;
-
-                var configuredSourceShortName = bankOptions.SourceShortName;
-
-                if (bank == BankCode.Absa)
-                {
-                    configuredSourceAccount = FirstConfigured(configuredSourceAccount, absaOptions.DefaultSourceAccountNumber);
-
-                    configuredSourceShortName = FirstConfigured(configuredSourceShortName, absaOptions.DefaultSourceShortName);
-                }
-
-                var fromAccountNumber = FirstConfigured(configuredSourceAccount, order.FromAccountNumber)!;
-
                 using var uow = uowManager.Begin(requiresNew: true, isTransactional: true);
 
                 var currentOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
@@ -100,18 +79,16 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                 var paymentRequest = new InitiatePaymentRequestDto
                 {
                     Bank = order.Bank,
-                    FromAccountNumber = fromAccountNumber,
-                    FromShortName = configuredSourceShortName,
+                    FromAccountNumber = order.FromAccountNumber,
                     ToAccountNumber = order.ToAccountNumber,
                     ToBranchCode = order.ToBranchCode,
                     Amount = order.Amount,
-                    Currency = "ZAR",
+                    Currency = order.Currency,
                     Reference = order.Reference,
                     BeneficiaryName = order.BeneficiaryName,
-                    PaymentRail = "RPP"
                 };
 
-                var result = await initiator.InitiateAsync(paymentRequest, order.OrderId);
+                var result = await initiator.InitiateAsync(paymentRequest, order.OrderId, order.OrderNumber);
 
                 await uow.CompleteAsync();
 
@@ -143,5 +120,4 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
         }
     }
 
-    private static string? FirstConfigured(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 }

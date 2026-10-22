@@ -23,6 +23,7 @@ public class BankingServicesModule : AbpModule
         var configuration = context.Services.GetConfiguration();
 
         Configure<AbsaCapiOptions>(configuration.GetSection(AbsaCapiOptions.SectionName));
+        Configure<BankPaymentIntakeOptions>(configuration.GetSection(BankPaymentIntakeOptions.SectionName));
         Configure<BankCallbackOptions>(configuration.GetSection(BankCallbackOptions.SectionName));
         Configure<AvsBatchOptions>(configuration.GetSection(AvsBatchOptions.SectionName));
 
@@ -31,6 +32,7 @@ public class BankingServicesModule : AbpModule
         context.Services.AddSingleton<IAbsaPaymentMapper, AbsaPaymentMapper>();
         context.Services.AddSingleton<IBankErrorMapper, AbsaErrorMapper>();
         context.Services.AddScoped<IBankCapabilityResolver, BankCapabilityResolver>();
+        context.Services.AddScoped<IBankRouterService, BankRouterService>();
 
         context.Services.AddHttpClient<IAbsaSessionProvider, AbsaSessionProvider>((sp, client) =>
         {
@@ -40,7 +42,12 @@ public class BankingServicesModule : AbpModule
                 client.BaseAddress = new Uri(options.BaseUrl);
             }
             client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
-        }).ConfigureAbsaPrimaryHandler();
+        })
+            .AddHttpMessageHandler(sp => new BankApiCallAuditHandler(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ILogger<BankApiCallAuditHandler>>(),
+                BankCode.Absa.ToString()))
+            .ConfigureAbsaPrimaryHandler();
 
         context.Services.AddHttpClient<IAbsaCapiClient, AbsaCapiClient>((sp, client) =>
         {
@@ -50,7 +57,12 @@ public class BankingServicesModule : AbpModule
                 client.BaseAddress = new Uri(options.BaseUrl);
             }
             client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
-        }).ConfigureAbsaPrimaryHandler();
+        })
+            .AddHttpMessageHandler(sp => new BankApiCallAuditHandler(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ILogger<BankApiCallAuditHandler>>(),
+                BankCode.Absa.ToString()))
+            .ConfigureAbsaPrimaryHandler();
 
         var absa = BankCode.Absa.ToString();
         context.Services.AddKeyedScoped<IAccountVerificationService, AbsaAccountVerificationService>(absa);

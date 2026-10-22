@@ -135,7 +135,10 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Absa payment status failed CorrelationId={CorrelationId}", correlationId);
+            _logger.LogError(
+                ex,
+                "Absa payment status failed CorrelationId={CorrelationId}",
+                correlationId);
             var apiError = _errorMapper.Map("PAYMENT_STATUS_EXCEPTION", ex.Message);
             LogStatusOutcome(request, null, false, apiError.Code, apiError.Message, correlationId);
             return ApiResult<PaymentStatusResponse>.Fail(apiError, correlationId);
@@ -210,4 +213,5 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
             JsonSerializer.Serialize(request, JsonOptions),
             response is null ? null : JsonSerializer.Serialize(response, JsonOptions));
     }
+
 }

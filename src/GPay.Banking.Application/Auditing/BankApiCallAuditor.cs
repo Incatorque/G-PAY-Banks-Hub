@@ -1,10 +1,11 @@
+using Azure;
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Uow;
 
-namespace GPay.Banking;
+namespace GPay.Banking.Auditing;
 
 /// <summary>
 /// Writes <see cref="BankHubApiCall"/> rows in their own unit of work.
@@ -15,21 +16,17 @@ public sealed class BankApiCallAuditor : IBankApiCallAuditor
     private readonly IUnitOfWorkManager _unitOfWorkManager;
     private readonly ILogger<BankApiCallAuditor> _logger;
 
-    public BankApiCallAuditor(
-        IRepository<BankHubApiCall, Guid> repository,
-        IUnitOfWorkManager unitOfWorkManager,
-        ILogger<BankApiCallAuditor> logger)
+    public BankApiCallAuditor(IRepository<BankHubApiCall, Guid> repository, IUnitOfWorkManager unitOfWorkManager, ILogger<BankApiCallAuditor> logger)
     {
         _repository = repository;
         _unitOfWorkManager = unitOfWorkManager;
         _logger = logger;
     }
 
-    public async Task RecordAsync(
-        BankApiCallAuditEntry entry,
-        CancellationToken cancellationToken = default)
+    public async Task RecordAsync(BankApiCallAuditEntry entry, CancellationToken cancellationToken = default)
     {
         using var uow = _unitOfWorkManager.Begin(requiresNew: true, isTransactional: true);
+
         var apiCall = new BankHubApiCall
         {
             GpayOrderId = entry.GpayOrderId,
@@ -47,18 +44,18 @@ public sealed class BankApiCallAuditor : IBankApiCallAuditor
             ErrorCode = entry.ErrorCode
         };
 
-        await _repository.InsertAsync(
-            apiCall,
-            autoSave: true,
-            cancellationToken: cancellationToken);
+        await _repository.InsertAsync(apiCall, autoSave: true, cancellationToken: cancellationToken);
 
         await uow.CompleteAsync(cancellationToken);
 
-        _logger.LogInformation(
-            "Stored bank API audit row {ApiCallId} for {BankCode} {Direction} {Operation}.",
+        object?[] logParams =
+        {
             apiCall.Id,
             apiCall.BankCode,
             apiCall.Direction,
-            apiCall.Operation);
+            apiCall.Operation,
+        };
+
+        _logger.LogInformation("Stored bank API audit row {ApiCallId} for {BankCode} {Direction} {Operation}.", logParams);
     }
 }
