@@ -205,6 +205,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
                   && status.Name.ToUpper() != "ERROR"
                   && status.Name.ToUpper() != "COMPLETED"
                   && status.Name.ToUpper() != "RECONCILED"
+                  && status.Name.ToLower() != "PRS"
             orderby order.OrderDate, order.OrderNumber
             select new
             {
@@ -262,6 +263,19 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 on order.StatusId equals status.Id
             where order.Id == orderId
             select status.Name;
+
+        return query.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<string?> GetPreviousOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        var query = (from order in _dbContext.Set<GpayOrderHistoryRow>().AsNoTracking()
+                     join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+                          on order.StatusId equals status.Id
+                     where order.Id == orderId
+                    orderby order.Date descending
+                     select status.Name);
+
 
         return query.FirstOrDefaultAsync(cancellationToken);
     }

@@ -71,7 +71,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                 }
 
                 var status = result.Data;
-                var previousOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
+                var previousOrderStatus = await gpay.GetPreviousOrderStatusAsync(order.OrderId);
 
                 await gpay.ApplyPaymentAsync(new GpayPaymentSyncRequest
                 {
@@ -87,13 +87,10 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 
                 var normalizedStatus = status.RawStatusLabel ?? status.Status;
                 var updatedOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
-                var orderStatusChanged = !string.Equals(
-                    previousOrderStatus,
-                    updatedOrderStatus,
-                    StringComparison.OrdinalIgnoreCase);
-
-                if (orderStatusChanged &&
-                    (IsSuccessfulStatus(normalizedStatus) || IsFailureStatus(normalizedStatus)))
+                var orderStatusChanged = !string.Equals(previousOrderStatus, updatedOrderStatus, StringComparison.OrdinalIgnoreCase);
+                var isSuccess = IsSuccessfulStatus(normalizedStatus);
+                var isFailure = IsFailureStatus(normalizedStatus);
+                if (orderStatusChanged && (isSuccess || isFailure))
                 {
                     try
                     {
