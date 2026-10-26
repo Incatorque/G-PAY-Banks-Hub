@@ -16,7 +16,7 @@ public class AccountVerificationServiceTests
     public async Task VerifyAsync_Simulator_ReturnsVerifiedEnvelope()
     {
         var capi = new Mock<IAbsaCapiClient>();
-        capi.SetupGet(c => c.UseSimulator).Returns(true);
+        //capi.SetupGet(c => c.UseSimulator).Returns(true);
         capi.Setup(c => c.VerifyAccountAsync(It.IsAny<AbsaAvsRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((AbsaAvsRequest req, CancellationToken _) => new AbsaAvsResponse
             {
