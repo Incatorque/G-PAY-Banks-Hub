@@ -1,6 +1,7 @@
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Helpers;
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -101,12 +102,32 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             throw new UserFriendlyException("Callback body is required.");
         }
 
+        var requestId = Activity.Current?.TraceId.ToString() ?? http?.TraceIdentifier;
+        Logger.LogInformation(
+            "Received {Bank} payment callback RequestId={RequestId} BodyLength={BodyLength}.",
+            bankKey,
+            requestId,
+            rawJson.Length);
+
         var bankCode = BankCodeParser.Parse(bankKey);
         var handler = _resolver.GetPaymentCallback(bankCode);
-        var result = await handler.HandlePaymentAsync(new PaymentCallbackInbound
+        PaymentCallbackResult result;
+        try
         {
-            RawJson = rawJson
-        });
+            result = await handler.HandlePaymentAsync(new PaymentCallbackInbound
+            {
+                RawJson = rawJson
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                ex,
+                "Payment callback handler failed for {Bank} RequestId={RequestId}.",
+                bankKey,
+                requestId);
+            throw;
+        }
 
         if (!result.IsAuthorized)
         {
@@ -119,10 +140,31 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             Message = result.Message
         };
 
-        if (!result.IsDuplicate && result.Update is not null)
+        if (result.Update is not null)
         {
-            await ApplyUpdateAsync(result.Update, bankCode);
+            try
+            {
+                await ApplyUpdateAsync(result.Update, bankCode);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(
+                    ex,
+                    "Payment callback order sync failed for {Bank} TxRef={TransactionReference} ApiRef={ApiReference} Status={Status} RequestId={RequestId}.",
+                    bankKey,
+                    result.Update.TransactionReference,
+                    result.Update.ApiReference,
+                    result.Update.Status,
+                    requestId);
+                throw;
+            }
         }
+
+        Logger.LogInformation(
+            "Payment callback completed for {Bank} Success={Success} RequestId={RequestId}.",
+            bankKey,
+            result.Success,
+            requestId);
 
         return acknowledgement;
     }

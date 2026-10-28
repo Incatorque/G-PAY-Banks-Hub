@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using GPay.Banking;
 using GPay.Banking.Domain;
@@ -12,8 +11,6 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// </summary>
 internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
 {
-    private static readonly ConcurrentDictionary<string, byte> Seen = new(StringComparer.Ordinal);
-
     private readonly BankCallbackOptions _options;
     private readonly ILogger<AbsaPaymentCallbackService> _logger;
     private readonly IBankApiCallAuditor _auditor;
@@ -66,17 +63,6 @@ internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         var apiRef = payload.ApiReference;
         var txRef = payload.TransactionReference;
         var status = payload.StatusLabel;
-        var key = $"{txRef ?? apiRef}|{payload.PaymentRail}|{payload.StatusCode}";
-
-        if (!Seen.TryAdd(key, 0))
-        {
-            _logger.LogInformation("Absa payment callback duplicate ignored Key={Key}", key);
-            return await AuditAndReturnAsync(
-                inbound,
-                payload,
-                PaymentCallbackResult.Duplicate(),
-                started);
-        }
 
         _logger.LogInformation(
             "Absa payment callback Type={Type} Status={Status} BankStatus={BankStatus} TxRef={TxRef}",
