@@ -8,33 +8,29 @@ namespace GPay.Banking.Helpers;
 /// <summary>
 /// Validates callback source IP / reverse-DNS against <see cref="BankCallbackOptions"/>.
 /// </summary>
-public static class CallbackSourceAllowList
+internal static class CallbackSourceAllowList
 {
-    public static IReadOnlyList<string> ConfiguredEntries(IEnumerable<string>? values) =>
+    private static IReadOnlyList<string> ConfiguredEntries(IEnumerable<string>? values) =>
         (values ?? []).Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
 
-    public static string? GetSourceIp(HttpContext? httpContext)
+    internal static string? GetSourceIp(HttpContext? httpContext)
     {
         if (httpContext is null)
         {
             return null;
         }
 
-        var forwarded = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(forwarded))
-        {
-            var first = forwarded.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(first))
-            {
-                return first;
-            }
-        }
+        var forwardedIp = httpContext.Request.Headers["X-Forwarded-For"]
+            .FirstOrDefault()?
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault();
 
-        return httpContext.Connection.RemoteIpAddress?.ToString();
+        return !string.IsNullOrWhiteSpace(forwardedIp)
+            ? forwardedIp
+            : httpContext.Connection.RemoteIpAddress?.ToString();
     }
 
-    public static async Task<CallbackSourceCheckResult> CheckAsync(
+    internal static async Task<CallbackSourceCheckResult> CheckAsync(
         BankCallbackOptions options,
         string bankKey,
         string? sourceIp,
@@ -88,7 +84,7 @@ public static class CallbackSourceAllowList
     /// <summary>
     /// Resolves bank key from source IP/domain when the caller omitted an explicit bank key.
     /// </summary>
-    public static async Task<string?> ResolveBankKeyAsync(
+    internal static async Task<string?> ResolveBankKeyAsync(
         BankCallbackOptions options,
         string? sourceIp,
         CancellationToken cancellationToken = default)
@@ -123,7 +119,7 @@ public static class CallbackSourceAllowList
         return null;
     }
 
-    public static bool IpMatches(string sourceIp, IReadOnlyList<string> allowed)
+    private static bool IpMatches(string sourceIp, IReadOnlyList<string> allowed)
     {
         if (!IPAddress.TryParse(sourceIp, out var source))
         {
@@ -151,7 +147,7 @@ public static class CallbackSourceAllowList
         return false;
     }
 
-    public static bool DomainMatches(string hostName, IReadOnlyList<string> allowed)
+    private static bool DomainMatches(string hostName, IReadOnlyList<string> allowed)
     {
         var host = hostName.Trim().TrimEnd('.').ToLowerInvariant();
         foreach (var entry in allowed)
@@ -221,10 +217,9 @@ public static class CallbackSourceAllowList
 
     private static async Task<string?> TryReverseDnsAsync(string ip, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            var entry = await Dns.GetHostEntryAsync(ip);
+            var entry = await Dns.GetHostEntryAsync(ip, cancellationToken);
             return entry.HostName;
         }
         catch (SocketException)

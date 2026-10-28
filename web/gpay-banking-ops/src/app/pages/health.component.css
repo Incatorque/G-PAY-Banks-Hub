@@ -17,22 +17,6 @@
 }
 
 .overall.unhealthy { border-color: #c47a00; }
-.overall.critical { border-color: #b42318; }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
-}
-
-.card {
-  padding: 1rem;
-  border: 1px solid #d7dee8;
-  background: #fff;
-}
-
-.card.unhealthy { border-color: #e0b66c; }
-.card.critical { border-color: #f0a8a0; }
 
 .muted { color: #667085; font-size: 0.9rem; }
 .error { color: #b42318; }

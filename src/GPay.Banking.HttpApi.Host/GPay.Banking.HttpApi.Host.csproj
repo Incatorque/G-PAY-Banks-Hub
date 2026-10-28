@@ -15,11 +15,11 @@
     <Copy SourceFiles="@(_BankingXmlDocs)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('%(Identity)')" />
   </Target>
   <ItemGroup>
-    <Content Include="Templates\paymen-initiate.html">
+    <Content Include="Templates\payment-initiate.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <Content Include="Templates\paymen-initiate-error.html">
+    <Content Include="Templates\payment-initiate-error.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -33,10 +33,6 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
     <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />

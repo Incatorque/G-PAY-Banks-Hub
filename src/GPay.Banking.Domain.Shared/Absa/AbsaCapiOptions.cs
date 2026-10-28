@@ -8,6 +8,12 @@ namespace GPay.Banking.Services.Absa;
 public sealed class AbsaCapiOptions
 {
     /// <summary>
+    /// Returns whether a configured credential is usable rather than blank or a setup placeholder.
+    /// </summary>
+    public static bool IsConfiguredCredential(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && !value.StartsWith("SET_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Configuration section name.
     /// </summary>
     public const string SectionName = "AbsaCapi";
@@ -21,11 +27,6 @@ public sealed class AbsaCapiOptions
     /// Authenticate path.
     /// </summary>
     public string AuthenticatePath { get; set; } = "/api/User/Authenticate";
-
-    /// <summary>
-    /// Logout path.
-    /// </summary>
-    public string LogoutPath { get; set; } = "/api/User/Logout";
 
     /// <summary>
     /// Validate Bank Details path (Absa on-us synchronous; non-Absa asynchronous).

@@ -3,7 +3,6 @@ using GPay.Banking;
 using GPay.Banking.Services;
 using GPay.Banking.Services.Absa.Api.Models.Payment;
 using GPay.Banking.Domain.Dtos;
-using Microsoft.Extensions.Options;
 
 namespace GPay.Banking.Services.Absa.Api.Mapping;
 
@@ -38,18 +37,16 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
     }
 
     /// <inheritdoc />
-    public AbsaPaymentInitiateRequest ToAbsaInitiateRequest(InstantPaymentRequest request, string correlationId)
+    public AbsaPaymentInitiateRequest ToAbsaInitiateRequest(InstantPaymentRequest request)
     {
-        _ = correlationId;
-
-        var rail = string.IsNullOrWhiteSpace(request.PaymentRail) ? "RPP" : request.PaymentRail.Trim().ToUpperInvariant();
-        var fromAccount = FirstNonEmpty(request.FromAccountNumber, _options.DefaultSourceAccountNumber)
+        var rail = NormalizeRail(request.PaymentRail);
+        var fromAccount = StringValueResolver.FirstNonEmpty(request.FromAccountNumber, _options.DefaultSourceAccountNumber)
             ?? throw new InvalidOperationException("FromAccountNumber is required.");
-        var shortName = FirstNonEmpty(request.FromShortName, _options.DefaultSourceShortName) ?? "GPAY";
-        var submitting = FirstNonEmpty(request.SubmittingEntityName, _options.DefaultSubmittingEntityName) ?? "GPay";
-        var subsidiary = FirstNonEmpty(request.SubsidiaryEntityName, _options.DefaultSubsidiaryEntityName) ?? submitting;
-        var fromStmt = Truncate(FirstNonEmpty(request.FromStatementRef, request.Reference) ?? request.Reference, 20);
-        var toStmt = Truncate(FirstNonEmpty(request.ToStatementRef, request.Reference) ?? request.Reference, 20);
+        var shortName = StringValueResolver.FirstNonEmpty(request.FromShortName, _options.DefaultSourceShortName) ?? "GPAY";
+        var submitting = StringValueResolver.FirstNonEmpty(request.SubmittingEntityName, _options.DefaultSubmittingEntityName) ?? "GPay";
+        var subsidiary = StringValueResolver.FirstNonEmpty(request.SubsidiaryEntityName, _options.DefaultSubsidiaryEntityName) ?? submitting;
+        var fromStmt = Truncate(StringValueResolver.FirstNonEmpty(request.FromStatementRef, request.Reference) ?? request.Reference, 20);
+        var toStmt = Truncate(StringValueResolver.FirstNonEmpty(request.ToStatementRef, request.Reference) ?? request.Reference, 20);
         var paymentDate = string.IsNullOrWhiteSpace(request.PaymentDate)
             ? DateTimeOffset.UtcNow.ToOffset(SouthAfricaOffset).ToString("yyyy-MM-dd")
             : request.PaymentDate.Trim();
@@ -69,25 +66,21 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
 
         var proof = new AbsaPaymentProofOfPayment
         {
-            EmailAddress = string.IsNullOrWhiteSpace(request.ProofOfPaymentEmail)
-                ? null
-                : request.ProofOfPaymentEmail.Trim(),
-            MobileNumber = string.IsNullOrWhiteSpace(request.ProofOfPaymentMobile)
-                ? null
-                : request.ProofOfPaymentMobile.Trim(),
+            EmailAddress = StringValueResolver.FirstNonEmpty(request.ProofOfPaymentEmail),
+            MobileNumber = StringValueResolver.FirstNonEmpty(request.ProofOfPaymentMobile),
             Indicator = sendPop ? "T" : "F"
         };
 
         AbsaPaymentCallback? callback = null;
-        var callbackUri = FirstNonEmpty(request.CallbackUri, _options.PaymentCallbackUri);
-        var callbackToken = FirstNonEmpty(request.CallbackToken, _options.PaymentCallbackToken);
+        var callbackUri = StringValueResolver.FirstNonEmpty(request.CallbackUri, _options.PaymentCallbackUri);
+        var callbackToken = StringValueResolver.FirstNonEmpty(request.CallbackToken, _options.PaymentCallbackToken);
         if (!string.IsNullOrWhiteSpace(callbackUri) && !string.IsNullOrWhiteSpace(callbackToken))
         {
             callback = new AbsaPaymentCallback
             {
                 Uri = callbackUri,
                 Token = callbackToken,
-                SupportEmail = FirstNonEmpty(request.CallbackSupportEmail, _options.PaymentCallbackSupportEmail)
+                SupportEmail = StringValueResolver.FirstNonEmpty(request.CallbackSupportEmail, _options.PaymentCallbackSupportEmail)
             };
         }
 
@@ -113,13 +106,13 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
                 AccountType = request.ToAccountType == 0 ? 10 : request.ToAccountType,
                 AccountNumber = request.ToAccountNumber.Trim(),
                 BankBranchCode = request.ToBranchCode.Trim(),
-                Name = string.IsNullOrWhiteSpace(request.BeneficiaryName) ? "BENEFICIARY" : request.BeneficiaryName.Trim(),
-                IsTrustAccount = string.IsNullOrWhiteSpace(request.IsTrustAccount) ? "N" : request.IsTrustAccount.Trim().ToUpperInvariant()
+                Name = StringValueResolver.FirstNonEmpty(request.BeneficiaryName) ?? "BENEFICIARY",
+                IsTrustAccount = StringValueResolver.FirstNonEmpty(request.IsTrustAccount)?.ToUpperInvariant() ?? "N"
             },
             Economics = new AbsaPaymentEconomics
             {
                 Indicator = rail,
-                CurrencyCode = string.IsNullOrWhiteSpace(request.Currency) ? "ZAR" : request.Currency.Trim().ToUpperInvariant(),
+                CurrencyCode = StringValueResolver.FirstNonEmpty(request.Currency)?.ToUpperInvariant() ?? "ZAR",
                 Amount = FormatAmount(request.Amount),
                 PaymentDate = paymentDate,
                 TransactionRef = Truncate(request.Reference.Trim(), 35)
@@ -151,7 +144,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             Status = label,
             RawStatusLabel = label,
             BankStatusCode = statusCode,
-            PaymentRail = string.IsNullOrWhiteSpace(request.PaymentRail) ? "RPP" : request.PaymentRail.Trim().ToUpperInvariant(),
+            PaymentRail = NormalizeRail(request.PaymentRail),
             Reference = request.Reference,
             Amount = request.Amount,
             Currency = request.Currency,
@@ -163,7 +156,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
     /// <inheritdoc />
     public AbsaPaymentStatusRequest ToAbsaStatusRequest(PaymentStatusRequest request)
     {
-        var corr = FirstNonEmpty(request.TransactionReference, request.ApiReference)
+        var corr = StringValueResolver.FirstNonEmpty(request.TransactionReference, request.ApiReference)
             ?? throw new InvalidOperationException("TransactionReference or ApiReference is required.");
 
         return new AbsaPaymentStatusRequest
@@ -236,18 +229,8 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
     private static string FormatAmount(decimal amount) =>
         amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static string? FirstNonEmpty(params string?[] values)
-    {
-        foreach (var v in values)
-        {
-            if (!string.IsNullOrWhiteSpace(v))
-            {
-                return v.Trim();
-            }
-        }
-
-        return null;
-    }
+    private static string NormalizeRail(string? rail) =>
+        string.IsNullOrWhiteSpace(rail) ? "RPP" : rail.Trim().ToUpperInvariant();
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];

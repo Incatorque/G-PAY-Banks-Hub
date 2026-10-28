@@ -43,7 +43,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 
         using var uow = uowManager.Begin(requiresNew: true, isTransactional: true);
 
-        var orders = await gpay.GetOrdersForStatusCheckAsync();
+        var orders = await gpay.GetOrdersForStatusCheckAsync(options.BatchSize);
 
         foreach (var order in orders)
         {
@@ -71,6 +71,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                 }
 
                 var status = result.Data;
+                var normalizedStatus = status.RawStatusLabel ?? status.Status;
                 var previousOrderStatus = await gpay.GetPreviousOrderStatusAsync(order.OrderId);
 
                 await gpay.ApplyPaymentAsync(new GpayPaymentSyncRequest
@@ -80,12 +81,11 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                     TransactionReference = status.TransactionReference,
                     SourceStatementRef = status.SourceStatementRef,
                     TargetStatementRef = status.TargetStatementRef,
-                    HubStatus = status.RawStatusLabel ?? status.Status,
+                    HubStatus = normalizedStatus,
                     Note = status.ResultDescription,
                     Amount = status.Amount ?? 0m
                 });
 
-                var normalizedStatus = status.RawStatusLabel ?? status.Status;
                 var updatedOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
                 var orderStatusChanged = !string.Equals(previousOrderStatus, updatedOrderStatus, StringComparison.OrdinalIgnoreCase);
                 var isSuccess = IsSuccessfulStatus(normalizedStatus);
@@ -105,7 +105,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                             Reference = status.Reference ?? order.Reference,
                             Status = normalizedStatus,
                             IsStatusCheck = true,
-                            IsError = IsFailureStatus(normalizedStatus),
+                            IsError = isFailure,
                             ErrorCode = status.ErrorCode ?? normalizedStatus,
                             ErrorMessage = status.ResultDescription,
                             StatusDescription = status.ResultDescription ?? "Payment successfully processed and settled.",
@@ -125,7 +125,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                     "Updated GPay order {OrderNumber} from {Bank} status {Status}.",
                     order.Bank,
                     order.OrderNumber,
-                    status.RawStatusLabel ?? status.Status);
+                    normalizedStatus);
             }
             catch (NotSupportedException ex)
             {

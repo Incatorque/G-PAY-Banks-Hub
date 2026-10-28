@@ -17,7 +17,7 @@ public interface IInstantPaymentInitiator
         string? orderNumber = null);
 }
 
-public sealed class InstantPaymentInitiator : IInstantPaymentInitiator
+internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
 {
     private readonly IBankRouterService _bankRouter;
     private readonly IGpayOrderSync _gpayOrderSync;
@@ -47,6 +47,8 @@ public sealed class InstantPaymentInitiator : IInstantPaymentInitiator
         }
 
         var bank = BankCodeParser.Parse(input.Bank);
+        var bankStorageCode = bank.ToString();
+        var notificationOrderNumber = orderNumber ?? gpayOrderId?.ToString("D") ?? input.Reference;
         var correlationId = Guid.NewGuid().ToString("N");
         var domainRequest = new InstantPaymentRequest
         {
@@ -82,14 +84,14 @@ public sealed class InstantPaymentInitiator : IInstantPaymentInitiator
         try
         {
             var result = await _bankRouter.SubmitPaymentAsync(bank, domainRequest, correlationId);
-            dto = BankPaymentResultMapper.FromInitiation(result, correlationId);
+            dto = BankPaymentResultMapper.From(result, correlationId);
         }
         catch (Exception ex)
         {
             await QueueInitiationNotificationAsync(new GpayPaymentInitiatedNotification
             {
-                Bank = BankCodeParser.ToStorageCode(bank),
-                OrderNumber = orderNumber ?? gpayOrderId?.ToString("D") ?? input.Reference,
+                Bank = bankStorageCode,
+                OrderNumber = notificationOrderNumber,
                 Amount = input.Amount,
                 Currency = input.Currency,
                 FromAccountNumber = input.FromAccountNumber,
@@ -106,8 +108,8 @@ public sealed class InstantPaymentInitiator : IInstantPaymentInitiator
 
         await QueueInitiationNotificationAsync(new GpayPaymentInitiatedNotification
         {
-            Bank = BankCodeParser.ToStorageCode(bank),
-            OrderNumber = orderNumber ?? gpayOrderId?.ToString("D") ?? input.Reference,
+            Bank = bankStorageCode,
+            OrderNumber = notificationOrderNumber,
             Amount = dto.Amount ?? input.Amount,
             Currency = dto.Currency ?? input.Currency,
             FromAccountNumber = input.FromAccountNumber,
@@ -134,7 +136,7 @@ public sealed class InstantPaymentInitiator : IInstantPaymentInitiator
         _logger.LogInformation(
             "Payment initiation at {Bank} completed with status {Status} " +
             "(success={Success}, correlation={CorrelationId}, GPayOrderId={GpayOrderId}).",
-            BankCodeParser.ToStorageCode(bank),
+            bankStorageCode,
             dto.Status,
             dto.Success,
             correlationId,

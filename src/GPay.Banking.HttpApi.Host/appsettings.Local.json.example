@@ -1,7 +1,6 @@
 {
   "_comment": "Copy to appsettings.Local.json (gitignored).",
   "AbsaCapi": {
-    "UseSimulator": false,
     "SkipRequestSignature": false,
     "Username": "",
     "Password": "",
@@ -32,5 +31,9 @@
         "AllowedSourceDomains": []
       }
     }
+  },
+  "GpayNotifications": {
+    "Username": "",
+    "Password": ""
   }
 }

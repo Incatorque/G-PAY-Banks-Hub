@@ -56,7 +56,7 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     {
         var correlationId = Guid.NewGuid().ToString("N");
         var bank = BankCodeParser.Parse(input.Bank);
-        var domainRequest = MapRequest(input);
+        var domainRequest = AccountVerificationRequestMapper.From(input, bank);
         var service = _resolver.GetAccountVerification(bank);
         var result = await service.VerifyAsync(domainRequest, correlationId);
 
@@ -71,32 +71,20 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             BranchCode = input.BranchCode,
             IdentityNumber = input.IdentityNumber,
             AccountHolderName = input.AccountHolderName ?? input.LastName,
-            IsVerified = dto.IsVerified,
-            ResultCode = dto.ResultCode,
-            ResultDescription = dto.ResultDescription,
-            BankResultCode = dto.BankResultCode,
-            BankReference = dto.BankReference,
-            AccountFound = dto.AccountFound,
-            AccountOpen = dto.AccountOpen,
-            AccountActive = dto.AccountActive,
-            IdentityMatch = dto.IdentityMatch,
-            NameMatch = dto.NameMatch,
-            InitialsMatch = dto.InitialsMatch,
-            EmailMatch = dto.EmailMatch,
-            PhoneMatch = dto.PhoneMatch,
-            AccountTypeMatch = dto.AccountTypeMatch,
-            AccountOpenLongerThan3Months = dto.AccountOpenLongerThan3Months,
-            AllowsCredit = dto.AllowsCredit,
-            AcceptsCredit = dto.AcceptsCredit,
-            AllowsDebit = dto.AllowsDebit,
-            AcceptsDebit = dto.AcceptsDebit,
             SuccessRate = dto.SuccessRate,
-            MatchingCriteriaJson = dto.MatchingCriteria is null ? null : JsonSerializer.Serialize(dto.MatchingCriteria),
             RequestBodyJson = JsonSerializer.Serialize(domainRequest),
             ResponseBodyJson = JsonSerializer.Serialize(result),
             ErrorMessage = dto.ErrorMessage,
-            Status = dto.IsVerified ? "Verified" : (result.Success ? "NotVerified" : "Error")
         };
+        if (result.Success && result.Data is { } response)
+        {
+            BankHubAvsRecordMapper.Apply(record, response);
+        }
+        else
+        {
+            record.Status = dto.IsVerified ? "Verified" : result.Success ? "NotVerified" : "Error";
+        }
+
         await _recordRepository.InsertAsync(record, autoSave: true);
         dto.RecordId = record.Id;
         return dto;
@@ -140,30 +128,32 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             ExternalBatchId = batchId,
             ApiClientId = input.ApiClientId
         };
-        batch.SetIdForInsert(batchId);
+        Volo.Abp.Domain.Entities.EntityHelper.TrySetId(batch, () => batchId);
 
         await _batchRepository.InsertAsync(batch, autoSave: true);
 
-        foreach (var item in input.Items.OrderBy(x => x.RowNumber))
-        {
-            var req = item.Request;
-            var record = new BankHubAvsRecord
+        var records = input.Items.OrderBy(item => item.RowNumber)
+            .Select(item =>
             {
-                BatchId = batchId,
-                ApiClientId = input.ApiClientId,
-                RowNumber = item.RowNumber,
-                BankCode = string.IsNullOrWhiteSpace(req.Bank) ? "Absa" : req.Bank,
-                Reference = req.Reference,
-                AccountNumber = req.AccountNumber,
-                BranchCode = req.BranchCode,
-                IdentityNumber = req.IdentityNumber,
-                AccountHolderName = req.AccountHolderName ?? req.LastName,
-                ResultCode = "Queued",
-                Status = "Queued",
-                RequestBodyJson = JsonSerializer.Serialize(req)
-            };
-            await _recordRepository.InsertAsync(record, autoSave: false);
-        }
+                var request = item.Request;
+                return new BankHubAvsRecord
+                {
+                    BatchId = batchId,
+                    ApiClientId = input.ApiClientId,
+                    RowNumber = item.RowNumber,
+                    BankCode = string.IsNullOrWhiteSpace(request.Bank) ? "Absa" : request.Bank,
+                    Reference = request.Reference,
+                    AccountNumber = request.AccountNumber,
+                    BranchCode = request.BranchCode,
+                    IdentityNumber = request.IdentityNumber,
+                    AccountHolderName = request.AccountHolderName ?? request.LastName,
+                    ResultCode = "Queued",
+                    Status = "Queued",
+                    RequestBodyJson = JsonSerializer.Serialize(request)
+                };
+            })
+            .ToList();
+        await _recordRepository.InsertManyAsync(records, autoSave: false);
 
         await CurrentUnitOfWork!.SaveChangesAsync();
 
@@ -232,23 +222,6 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         }).ToList();
     }
 
-    private static AccountVerificationRequest MapRequest(VerifyAccountRequestDto input) => new()
-    {
-        Bank = BankCodeParser.Parse(input.Bank),
-        AccountNumber = input.AccountNumber,
-        BranchCode = input.BranchCode,
-        IssuingBankCode = input.IssuingBankCode,
-        IdentityNumber = input.IdentityNumber,
-        IdentityType = input.IdentityType,
-        AccountHolderName = input.AccountHolderName,
-        Initials = input.Initials,
-        LastName = input.LastName,
-        AccountType = input.AccountType,
-        Email = input.Email,
-        PhoneNumber = input.PhoneNumber,
-        Reference = input.Reference
-    };
-
     private static AccountVerificationResultDto MapResult(ApiResult<AccountVerificationResponse> result, string correlationId)
     {
         if (!result.Success || result.Data is null)
@@ -291,7 +264,9 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             MatchingCriteria = d.MatchingCriteria,
             CorrelationId = correlationId,
             SuccessRate = CalculateSuccessRate(d),
-            AbsaError = KnownAbsaError(d.BankResultCode, d.ResultDescription)
+            AbsaError = AbsaErrorResponses.FromCode(d.BankResultCode, d.ResultDescription) is { Known: true } error
+                ? error
+                : null
         };
     }
 
@@ -310,9 +285,4 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         return Math.Round(100m * checks.Count(c => c == true) / known, 1);
     }
 
-    private static AbsaErrorInfo? KnownAbsaError(string? code, string? message)
-    {
-        var info = AbsaErrorResponses.FromCode(code, message);
-        return info is { Known: true } ? info : null;
-    }
 }

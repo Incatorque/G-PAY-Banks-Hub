@@ -4,14 +4,13 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using GPay.Banking.Services;
-using Microsoft.Extensions.Options;
 
 namespace GPay.Banking.Services.Absa.Api.Clients;
 
 /// <summary>
 /// Signs request bodies with SHA256 + RSA-PSS using the onboarding client certificate.
 /// </summary>
-public sealed class AbsaRequestSigner : IAbsaRequestSigner
+internal sealed class AbsaRequestSigner : IAbsaRequestSigner
 {
     private readonly AbsaCapiOptions _options;
     private readonly ILogger<AbsaRequestSigner> _logger;

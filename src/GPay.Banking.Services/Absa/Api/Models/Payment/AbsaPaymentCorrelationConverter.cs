@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GPay.Banking.Services;
 
 namespace GPay.Banking.Services.Absa.Api.Models.Payment;
 
@@ -17,9 +18,9 @@ public sealed class AbsaPaymentCorrelationConverter : JsonConverter<AbsaPaymentC
 
         return new AbsaPaymentCorrelation
         {
-            Type = ReadInt(root, "Correlation", "Type"),
-            Value = ReadString(root, "CorrelationId", "Value"),
-            Id = ReadString(root, "Id")
+            Type = JsonElementReader.ReadFirstInt(root, "Correlation", "Type"),
+            Value = JsonElementReader.ReadString(root, "CorrelationId", "Value"),
+            Id = JsonElementReader.ReadString(root, "Id")
         };
     }
 
@@ -39,61 +40,5 @@ public sealed class AbsaPaymentCorrelationConverter : JsonConverter<AbsaPaymentC
         }
 
         writer.WriteEndObject();
-    }
-
-    private static int ReadInt(JsonElement root, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!TryGet(root, name, out var value))
-            {
-                continue;
-            }
-
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
-            {
-                return number;
-            }
-
-            if (value.ValueKind == JsonValueKind.String &&
-                int.TryParse(value.GetString(), out var parsed))
-            {
-                return parsed;
-            }
-        }
-
-        return 0;
-    }
-
-    private static string? ReadString(JsonElement root, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (TryGet(root, name, out var value) && value.ValueKind == JsonValueKind.String)
-            {
-                var text = value.GetString();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    return text.Trim();
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static bool TryGet(JsonElement root, string name, out JsonElement value)
-    {
-        foreach (var property in root.EnumerateObject())
-        {
-            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                value = property.Value;
-                return true;
-            }
-        }
-
-        value = default;
-        return false;
     }
 }

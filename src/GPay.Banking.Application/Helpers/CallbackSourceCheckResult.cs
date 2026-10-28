@@ -1,20 +1,8 @@
 namespace GPay.Banking.Helpers;
 
-public sealed class CallbackSourceCheckResult
+internal sealed record CallbackSourceCheckResult(bool IsAllowed, string Message)
 {
-    public bool IsAllowed { get; init; }
+    public static CallbackSourceCheckResult Allowed(string message) => new(true, message);
 
-    public string Message { get; init; } = string.Empty;
-
-    public static CallbackSourceCheckResult Allowed(string message) => new()
-    {
-        IsAllowed = true,
-        Message = message
-    };
-
-    public static CallbackSourceCheckResult Denied(string message) => new()
-    {
-        IsAllowed = false,
-        Message = message
-    };
+    public static CallbackSourceCheckResult Denied(string message) => new(false, message);
 }

@@ -12,13 +12,14 @@ public interface IGpayOrderSync
 
     /// <summary>Gets today's non-terminal GPay orders funded from supported bank accounts.</summary>
     Task<IReadOnlyList<GpayPaymentStatusCandidate>> GetOrdersForStatusCheckAsync(
+        int batchSize,
         CancellationToken cancellationToken = default);
 
     /// <summary>Reads the current GPay order status immediately before bank submission.</summary>
     Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
 
-    /// <summary>Reads the previous GPay order status</summary>
-    public Task<string?> GetPreviousOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
+    /// <summary>Reads the previous GPay order status.</summary>
+    Task<string?> GetPreviousOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates <c>Order.FkOrderStatusID</c> and inserts an <c>OrderHistory</c> audit row.

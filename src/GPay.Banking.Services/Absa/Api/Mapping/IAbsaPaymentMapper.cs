@@ -11,7 +11,7 @@ public interface IAbsaPaymentMapper
     /// <summary>
     /// Maps a GPay instant payment request to an Absa initiate request (Session filled by the client).
     /// </summary>
-    AbsaPaymentInitiateRequest ToAbsaInitiateRequest(InstantPaymentRequest request, string correlationId);
+    AbsaPaymentInitiateRequest ToAbsaInitiateRequest(InstantPaymentRequest request);
 
     /// <summary>
     /// Maps an Absa initiate response to a GPay response.

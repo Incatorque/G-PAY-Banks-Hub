@@ -9,7 +9,7 @@ using Volo.Abp.Uow;
 
 namespace GPay.Banking.BackgroundWorkers;
 
-/// <summary>Polls G-PAY� PRS orders and routes each enabled bank to its payment adapter.</summary>
+/// <summary>Polls G-PAY PRS orders and routes each enabled bank to its payment adapter.</summary>
 public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 {
     public BankPaymentOrderWorker(AbpAsyncTimer timer, IServiceScopeFactory serviceScopeFactory) : base(timer, serviceScopeFactory)
@@ -44,7 +44,7 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 
         using (var pollUow = uowManager.Begin(requiresNew: true, isTransactional: false))
         {
-            candidates = await gpay.GetEligiblePaymentOrdersAsync(Math.Max(1, options.BatchSize),enabledBanks);
+            candidates = await gpay.GetEligiblePaymentOrdersAsync(Math.Max(1, options.BatchSize), enabledBanks);
 
             await pollUow.CompleteAsync();
         }
@@ -92,27 +92,22 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 
                 await uow.CompleteAsync();
 
-                var _params = new[]
-                { 
-                    order.Bank, 
+                logger.LogInformation(
+                    "{Bank} payment submission for GPay order {OrderNumber} returned {Status} (success={Success}, correlation={CorrelationId}).",
+                    order.Bank,
                     order.OrderNumber,
                     result.Status,
-                    result.Success.ToString(),
-                    result.CorrelationId
-                };
-
-                logger.LogInformation("{Bank} payment submission for GPay order {OrderNumber} returned {Status} (success={Success}, correlation={CorrelationId}).", _params);
+                    result.Success,
+                    result.CorrelationId);
             }
             catch (Exception ex)
             {
-                var _params = new[]
-                {
+                logger.LogError(
+                    ex,
+                    "Failed to submit payment for GPay order {OrderNumber} at bank {Bank} (reference {Reference}).",
                     order.OrderNumber,
                     order.Bank,
-                    order.Reference
-                };
-
-                logger.LogError(ex, "Failed to submit payment for GPay order {OrderNumber} at bank {Bank} (reference {Reference}).", _params);
+                    order.Reference);
                 logger.LogInformation(
                     "GPay order {OrderNumber} will be rechecked on the next PRS poll based on its GPay order status.",
                     order.OrderNumber);

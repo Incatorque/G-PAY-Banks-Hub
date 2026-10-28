@@ -1,28 +1,9 @@
-# GPay Banking Ops (Angular)
+# GPay Banking Ops deployment
 
-IIS-ready Angular app for platform health and RabbitMQ queue depths.
+Build the app with `npm run build`. The deployable files are in `dist/gpay-banking-ops/browser`.
 
-## Development
+1. Point the IIS site at the `browser` output directory.
+2. Install IIS URL Rewrite so `public/web.config` can route SPA paths to `index.html`.
+3. The production API base URL is empty, so the UI calls `/health` on its own origin. If the Banking API is hosted separately, set `apiBaseUrl` in `src/environments/environment.prod.ts` before building.
 
-```bash
-npm install
-npm start
-```
-
-Calls Orchestrator at `http://localhost:5100` (see `src/environments/environment.ts`).
-
-## Production / IIS
-
-```bash
-npm run build
-```
-
-Output: `dist/gpay-banking-ops/browser`
-
-1. Create an IIS site (or virtual application) pointing at the browser output folder.
-2. Ensure **URL Rewrite** is installed — `web.config` in the output rewrites SPA routes to `index.html`.
-3. Production `apiBaseUrl` is empty (same-origin). If the API is on another host, set it in `environment.prod.ts` before building.
-
-### Same-site with Orchestrator
-
-Copy `dist/gpay-banking-ops/browser/*` into Orchestrator `wwwroot` after publish. Orchestrator already serves static files and falls back to `index.html`.
+For local development, `npm start` serves the UI at `http://localhost:4200` and uses the Banking API at `http://localhost:63340` by default. Update `src/environments/environment.ts` if the API uses a different address.

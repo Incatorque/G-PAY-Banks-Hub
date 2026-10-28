@@ -6,14 +6,8 @@ namespace GPay.Banking.Services.Absa.Api.Clients;
 /// <summary>
 /// Username/password session provider with in-memory cache (~25 minutes).
 /// </summary>
-public sealed class AbsaSessionProvider : IAbsaSessionProvider
+internal sealed class AbsaSessionProvider : IAbsaSessionProvider
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = null
-    };
-
     private readonly HttpClient _httpClient;
     private readonly IAbsaRequestSigner _requestSigner;
     private readonly AbsaCapiOptions _options;
@@ -22,6 +16,9 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
 
     private string? _session;
     private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
+
+    private string? ValidSession =>
+        string.IsNullOrWhiteSpace(_session) || DateTimeOffset.UtcNow >= _expiresAt ? null : _session;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AbsaSessionProvider"/> class.
@@ -37,33 +34,34 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
     /// <inheritdoc />
     public async Task<string> GetSessionAsync(CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrWhiteSpace(_session) && DateTimeOffset.UtcNow < _expiresAt)
+        if (ValidSession is { } cachedSession)
         {
-            return _session!;
+            return cachedSession;
         }
 
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            if (!string.IsNullOrWhiteSpace(_session) && DateTimeOffset.UtcNow < _expiresAt)
+            if (ValidSession is { } refreshedSession)
             {
-                return _session!;
+                return refreshedSession;
             }
 
-            if (!IsLiveCredential(_options.Username) || !IsLiveCredential(_options.Password))
+            if (!AbsaCapiOptions.IsConfiguredCredential(_options.Username) ||
+                !AbsaCapiOptions.IsConfiguredCredential(_options.Password))
             {
                 throw new InvalidOperationException(
                     "AbsaCapi Username/Password are not configured. Set AbsaCapi__Username / AbsaCapi__Password " +
                     "via appsettings.Absa.json, appsettings.Local.json, user-secrets, or GPAY_AbsaCapi__* environment variables.");
             }
 
-            var uri = BuildUri(_options.AuthenticatePath);
+            var uri = AbsaUriBuilder.Build(_options.BaseUrl, _options.AuthenticatePath);
 
             var payload = JsonSerializer.Serialize(new
             {
                 _options.Username,
                 _options.Password
-            }, JsonOptions);
+            }, AbsaJsonOptions.Default);
 
             using var request = new HttpRequestMessage(HttpMethod.Post, uri)
             {
@@ -85,7 +83,7 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
                     $"Absa authenticate failed with status {(int)response.StatusCode}: {body}");
             }
 
-            var auth = JsonSerializer.Deserialize<AuthenticateResponse>(body, JsonOptions)
+            var auth = JsonSerializer.Deserialize<AuthenticateResponse>(body, AbsaJsonOptions.Default)
                 ?? throw new InvalidOperationException("Unable to deserialize Absa authenticate response.");
 
             if (auth.Success != true || string.IsNullOrWhiteSpace(auth.Session))
@@ -111,12 +109,4 @@ public sealed class AbsaSessionProvider : IAbsaSessionProvider
         }
     }
 
-    private Uri BuildUri(string relativePath)
-    {
-        var baseUrl = _options.BaseUrl.TrimEnd('/') + "/";
-
-        return new Uri(new Uri(baseUrl), relativePath.TrimStart('/'));
-    }
-
-    private static bool IsLiveCredential(string? value) => !string.IsNullOrWhiteSpace(value) && !value.StartsWith("SET_", StringComparison.OrdinalIgnoreCase);
 }

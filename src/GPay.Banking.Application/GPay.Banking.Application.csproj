@@ -4,18 +4,14 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>GPay.Banking</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <UserSecretsId>b8f6086a-dd2b-4ad8-9db9-d2740c3f3a76</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GPay.Banking.Domain\GPay.Banking.Domain.csproj" />
     <ProjectReference Include="..\GPay.Banking.Application.Contracts\GPay.Banking.Application.Contracts.csproj" />
-    <ProjectReference Include="..\GPay.Banking.EntityFrameworkCore\GPay.Banking.EntityFrameworkCore.csproj" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="9.0.4" />
     <PackageReference Include="Volo.Abp.Ddd.Application" Version="9.2.1" />
-    <PackageReference Include="Volo.Abp.AutoMapper" Version="9.2.1" />
     <PackageReference Include="Volo.Abp.BackgroundJobs" Version="9.2.1" />
     <PackageReference Include="Volo.Abp.BackgroundWorkers" Version="9.2.1" />
   </ItemGroup>

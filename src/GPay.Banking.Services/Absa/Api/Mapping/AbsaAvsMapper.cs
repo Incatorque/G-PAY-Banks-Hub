@@ -3,7 +3,6 @@ using GPay.Banking;
 using GPay.Banking.Services;
 using GPay.Banking.Services.Absa.Api.Models.Avs;
 using GPay.Banking.Domain.Dtos;
-using Microsoft.Extensions.Options;
 
 namespace GPay.Banking.Services.Absa.Api.Mapping;
 
@@ -110,7 +109,7 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
         var accountTypeMatch = ToYnU(response.GetValue("Account Type Matched"));
         var emailMatch = ToYnU(response.GetValue("Email Address Match"));
         var cellMatch = ToYnU(response.GetValue("Cell Number Match"));
-        var openLonger = ToNullableBool(response.GetValue("Account Open Longer Than 3 Months"));
+        var openLonger = ToTriState(response.GetValue("Account Open Longer Than 3 Months"));
 
         var identityOk = IsYesOrUnverifiedOk(idMatch);
         var nameOk = IsYesOrUnverifiedOk(nameMatch);
@@ -139,10 +138,10 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
             EmailMatch = emailMatch,
             PhoneMatch = cellMatch,
             AccountOpenLongerThan3Months = openLonger,
-            AllowsCredit = ToNullableBool(response.GetValue("Account Allows Credit")),
-            AcceptsCredit = ToNullableBool(response.GetValue("Account Accepts Credit")),
-            AllowsDebit = ToNullableBool(response.GetValue("Account Allows Debit")),
-            AcceptsDebit = ToNullableBool(response.GetValue("Account Accepts Debit")),
+            AllowsCredit = ToTriState(response.GetValue("Account Allows Credit")),
+            AcceptsCredit = ToTriState(response.GetValue("Account Accepts Credit")),
+            AllowsDebit = ToTriState(response.GetValue("Account Allows Debit")),
+            AcceptsDebit = ToTriState(response.GetValue("Account Accepts Debit")),
             ResultCode = isBusinessSuccess
                 ? "VERIFIED"
                 : response.StatusCode is "033" or "099" ? "ERROR" : "NOT_VERIFIED",
@@ -158,32 +157,16 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
         };
     }
 
-    private string ResolveCapiCode(AccountVerificationRequest request)
-    {
-        if (request.AdditionalData?.TryGetValue("CapiCode", out var code) == true &&
-            !string.IsNullOrWhiteSpace(code))
-        {
-            return code.Trim();
-        }
+    private string ResolveCapiCode(AccountVerificationRequest request) =>
+        StringValueResolver.FirstNonEmpty(
+            request.AdditionalData?.GetValueOrDefault("CapiCode"),
+            _options.CapiCode) ?? string.Empty;
 
-        return string.IsNullOrWhiteSpace(_options.CapiCode) ? string.Empty : _options.CapiCode.Trim();
-    }
-
-    private string ResolveBankCode(AccountVerificationRequest request)
-    {
-        if (!string.IsNullOrWhiteSpace(request.IssuingBankCode))
-        {
-            return request.IssuingBankCode.Trim();
-        }
-
-        if (request.AdditionalData?.TryGetValue("BankCode", out var code) == true &&
-            !string.IsNullOrWhiteSpace(code))
-        {
-            return code.Trim();
-        }
-
-        return string.IsNullOrWhiteSpace(_options.DefaultBankCode) ? "000016" : _options.DefaultBankCode.Trim();
-    }
+    private string ResolveBankCode(AccountVerificationRequest request) =>
+        StringValueResolver.FirstNonEmpty(
+            request.IssuingBankCode,
+            request.AdditionalData?.GetValueOrDefault("BankCode"),
+            _options.DefaultBankCode) ?? "000016";
 
     private static int ResolveClientIdType(AccountVerificationRequest request)
     {
@@ -300,14 +283,6 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
     }
 
     private static bool? ToTriState(string? value) =>
-        value?.Trim().ToUpperInvariant() switch
-        {
-            "YES" or "Y" or "TRUE" => true,
-            "NO" or "N" or "FALSE" => false,
-            _ => null
-        };
-
-    private static bool? ToNullableBool(string? value) =>
         value?.Trim().ToUpperInvariant() switch
         {
             "YES" or "Y" or "TRUE" => true,

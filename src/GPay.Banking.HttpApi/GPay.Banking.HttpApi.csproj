@@ -6,8 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GPay.Banking.Application.Contracts\GPay.Banking.Application.Contracts.csproj" />
-    <ProjectReference Include="..\GPay.Banking.Domain\GPay.Banking.Domain.csproj" />
-    <ProjectReference Include="..\GPay.Banking.Domain.Shared\GPay.Banking.Domain.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Volo.Abp.AspNetCore.Mvc" Version="9.2.1" />

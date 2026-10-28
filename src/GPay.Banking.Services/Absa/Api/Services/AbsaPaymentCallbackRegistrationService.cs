@@ -8,7 +8,7 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// <summary>
 /// Absa channel callback URL registration (Payment API v1.8 §9.2–9.3).
 /// </summary>
-public sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackRegistrationService
+internal sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackRegistrationService
 {
     private readonly IAbsaCapiClient _capiClient;
     private readonly IBankErrorMapper _errorMapper;
@@ -54,16 +54,17 @@ public sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackReg
 
         try
         {
+            var uri = request.Uri.Trim();
             _logger.LogInformation(
                 "Absa payment callback unregister Uri={Uri} CorrelationId={CorrelationId}",
                 request.Uri,
                 correlationId);
 
             var absaResponse = await _capiClient.UnregisterPaymentCallbackAsync(
-                new AbsaPaymentCallbackUnregisterRequest { Uri = request.Uri.Trim() },
+                new AbsaPaymentCallbackUnregisterRequest { Uri = uri },
                 cancellationToken);
 
-            return MapResponse(absaResponse, request.Uri.Trim(), "Unregistered", correlationId);
+            return MapResponse(absaResponse, uri, "Unregistered", correlationId);
         }
         catch (Exception ex)
         {
@@ -87,6 +88,7 @@ public sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackReg
 
         try
         {
+            var uri = request.Uri.Trim();
             _logger.LogInformation(
                 "Absa payment callback register Uri={Uri} CorrelationId={CorrelationId}",
                 request.Uri,
@@ -95,13 +97,13 @@ public sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackReg
             var absaResponse = await _capiClient.RegisterPaymentCallbackAsync(
                 new AbsaPaymentCallbackRegisterRequest
                 {
-                    Uri = request.Uri.Trim(),
+                    Uri = uri,
                     Token = request.Token.Trim(),
                     SupportEmail = request.SupportEmail.Trim()
                 },
                 cancellationToken);
 
-            return MapResponse(absaResponse, request.Uri.Trim(), successStatus, correlationId);
+            return MapResponse(absaResponse, uri, successStatus, correlationId);
         }
         catch (Exception ex)
         {
