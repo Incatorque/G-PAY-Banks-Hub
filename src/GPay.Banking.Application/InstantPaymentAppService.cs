@@ -22,17 +22,20 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
     private readonly IBankRouterService _bankRouter;
     private readonly IRepository<BankHubApiCall, Guid> _apiCallRepository;
     private readonly IGpayOrderSync _gpayOrderSync;
+    private readonly IGpayPaymentNotificationQueue _notifications;
 
     public InstantPaymentAppService(
         IInstantPaymentInitiator initiator,
         IBankRouterService bankRouter,
         IRepository<BankHubApiCall, Guid> apiCallRepository,
-        IGpayOrderSync gpayOrderSync)
+        IGpayOrderSync gpayOrderSync,
+        IGpayPaymentNotificationQueue notifications)
     {
         _initiator = initiator;
         _bankRouter = bankRouter;
         _apiCallRepository = apiCallRepository;
         _gpayOrderSync = gpayOrderSync;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -64,17 +67,52 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
             bankCode,
             input.TransactionReference,
             input.ApiReference);
-        var result = await _bankRouter.GetPaymentStatusAsync(
-            bank,
-            new PaymentStatusRequest
-            {
-                TransactionReference = input.TransactionReference,
-                ApiReference = input.ApiReference,
-                GpayOrderId = paymentCall?.GpayOrderId
-            },
-            correlationId);
+        ApiResult<PaymentStatusResponse> result;
+        try
+        {
+            result = await _bankRouter.GetPaymentStatusAsync(
+                bank,
+                new PaymentStatusRequest
+                {
+                    TransactionReference = input.TransactionReference,
+                    ApiReference = input.ApiReference,
+                    GpayOrderId = paymentCall?.GpayOrderId
+                },
+                correlationId);
+        }
+        catch (Exception ex)
+        {
+            await QueueStatusErrorAsync(input, paymentCall?.GpayOrderId, bankCode, "PAYMENT_STATUS_EXCEPTION", ex.Message);
+            throw;
+        }
 
         var dto = BankPaymentResultMapper.From(result, correlationId);
+        if (!result.Success || result.Data is null)
+        {
+            await QueueStatusErrorAsync(
+                input,
+                paymentCall?.GpayOrderId,
+                bankCode,
+                result.Error?.Code ?? "PAYMENT_STATUS_ERROR",
+                result.Error?.Message ?? "No status data returned.");
+        }
+        else if (PaymentStatusClassifier.IsFailure(result.Data.RawStatusLabel ?? result.Data.Status))
+        {
+            await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
+            {
+                Bank = bankCode,
+                OrderNumber = paymentCall?.GpayOrderId?.ToString("D") ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
+                Reference = result.Data.Reference ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
+                Amount = result.Data.Amount ?? 0m,
+                Currency = result.Data.Currency ?? string.Empty,
+                Status = result.Data.RawStatusLabel ?? result.Data.Status,
+                IsStatusCheck = true,
+                IsError = true,
+                ErrorCode = result.Data.ErrorCode ?? result.Data.RawStatusLabel ?? result.Data.Status,
+                ErrorMessage = result.Data.ResultDescription,
+                StatusDescription = result.Data.ResultDescription
+            });
+        }
         if (result.Success && result.Data is not null && paymentCall?.GpayOrderId is Guid gpayOrderId)
         {
             await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
@@ -92,5 +130,24 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
 
         return dto;
     }
+
+    private Task QueueStatusErrorAsync(
+        PaymentStatusRequestDto input,
+        Guid? orderId,
+        string bank,
+        string errorCode,
+        string errorMessage) =>
+        _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
+        {
+            Bank = bank,
+            OrderNumber = orderId?.ToString("D") ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
+            Reference = input.TransactionReference ?? input.ApiReference ?? string.Empty,
+            Status = "Error",
+            IsStatusCheck = true,
+            IsError = true,
+            ErrorCode = errorCode,
+            ErrorMessage = errorMessage,
+            StatusDescription = errorMessage
+        });
 
 }

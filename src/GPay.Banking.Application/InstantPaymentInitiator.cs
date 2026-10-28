@@ -4,7 +4,6 @@ using GPay.Banking.Domain.Dtos;
 using GPay.Banking.Helpers;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
-using Volo.Abp.BackgroundJobs;
 
 namespace GPay.Banking;
 
@@ -21,18 +20,18 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
 {
     private readonly IBankRouterService _bankRouter;
     private readonly IGpayOrderSync _gpayOrderSync;
-    private readonly IBackgroundJobManager _backgroundJobs;
+    private readonly IGpayPaymentNotificationQueue _notifications;
     private readonly ILogger<InstantPaymentInitiator> _logger;
 
     public InstantPaymentInitiator(
         IBankRouterService bankRouter,
         IGpayOrderSync gpayOrderSync,
-        IBackgroundJobManager backgroundJobs,
+        IGpayPaymentNotificationQueue notifications,
         ILogger<InstantPaymentInitiator> logger)
     {
         _bankRouter = bankRouter;
         _gpayOrderSync = gpayOrderSync;
-        _backgroundJobs = backgroundJobs;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -41,15 +40,10 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
         Guid? gpayOrderId = null,
         string? orderNumber = null)
     {
-        if (input.Amount <= 0)
-        {
-            throw new UserFriendlyException("Amount must be greater than zero.");
-        }
-
-        var bank = BankCodeParser.Parse(input.Bank);
-        var bankStorageCode = bank.ToString();
+        var bankStorageCode = input.Bank ?? string.Empty;
         var notificationOrderNumber = orderNumber ?? gpayOrderId?.ToString("D") ?? input.Reference;
         var correlationId = Guid.NewGuid().ToString("N");
+        BankCode bank;
         var domainRequest = new InstantPaymentRequest
         {
             GpayOrderId = gpayOrderId,
@@ -83,12 +77,19 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
 
         try
         {
+            if (input.Amount <= 0)
+            {
+                throw new UserFriendlyException("Amount must be greater than zero.");
+            }
+
+            bank = BankCodeParser.Parse(input.Bank);
+            bankStorageCode = bank.ToString();
             var result = await _bankRouter.SubmitPaymentAsync(bank, domainRequest, correlationId);
             dto = BankPaymentResultMapper.From(result, correlationId);
         }
         catch (Exception ex)
         {
-            await QueueInitiationNotificationAsync(new GpayPaymentInitiatedNotification
+            await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
             {
                 Bank = bankStorageCode,
                 OrderNumber = notificationOrderNumber,
@@ -106,7 +107,7 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
             throw;
         }
 
-        await QueueInitiationNotificationAsync(new GpayPaymentInitiatedNotification
+        await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
         {
             Bank = bankStorageCode,
             OrderNumber = notificationOrderNumber,
@@ -145,19 +146,4 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
         return dto;
     }
 
-    private async Task QueueInitiationNotificationAsync(GpayPaymentInitiatedNotification notification)
-    {
-        try
-        {
-            await _backgroundJobs.EnqueueAsync(notification);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(
-                ex,
-                "Failed to queue payment initiation email for {Bank} payment reference {Reference}.",
-                notification.Bank,
-                notification.Reference);
-        }
-    }
 }

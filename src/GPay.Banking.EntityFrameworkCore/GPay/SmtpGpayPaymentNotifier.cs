@@ -42,11 +42,16 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             : notification.IsError
                 ? "payment-initiate-error.html"
                 : "payment-initiate.html";
-        var templatePath = Path.Combine(_hostEnvironment.ContentRootPath, "Templates", templateFileName);
+        var templatePath = new[]
+            {
+                Path.Combine(_hostEnvironment.ContentRootPath, "Templates", templateFileName),
+                Path.Combine(AppContext.BaseDirectory, "Templates", templateFileName)
+            }
+            .FirstOrDefault(File.Exists);
 
-        if (!File.Exists(templatePath))
+        if (templatePath is null)
         {
-            _logger.LogError("Payment notification email template was not found at {TemplatePath}.", templatePath);
+            _logger.LogError("Payment notification email template {TemplateFileName} was not found.", templateFileName);
             return;
         }
 
