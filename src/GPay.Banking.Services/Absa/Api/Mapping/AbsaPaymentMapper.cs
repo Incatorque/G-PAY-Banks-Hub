@@ -148,7 +148,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             Reference = request.Reference,
             Amount = request.Amount,
             Currency = request.Currency,
-            ResultDescription = firstError?.Description ?? firstError?.Message ?? AbsaPaymentStatuses.ToBankName(statusCode),
+            ResultDescription = firstError?.Description ?? firstError?.Message ?? InitiateStatusDescription(statusCode),
             ErrorCode = firstError?.Code
         };
     }
@@ -228,6 +228,10 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
 
     private static string FormatAmount(decimal amount) =>
         amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string InitiateStatusDescription(int? statusCode) => statusCode == 8
+        ? "The Transaction Reference is a duplicate. Please enter a unique Transaction Reference."
+        : AbsaPaymentStatuses.ToBankName(statusCode);
 
     private static string NormalizeRail(string? rail) =>
         string.IsNullOrWhiteSpace(rail) ? "RPP" : rail.Trim().ToUpperInvariant();

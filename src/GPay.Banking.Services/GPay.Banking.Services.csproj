@@ -13,4 +13,7 @@
     <ProjectReference Include="..\GPay.Banking.Domain\GPay.Banking.Domain.csproj" />
     <ProjectReference Include="..\GPay.Banking.Domain.Shared\GPay.Banking.Domain.Shared.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="GPay.Banking.Services.Tests" />
+  </ItemGroup>
 </Project>

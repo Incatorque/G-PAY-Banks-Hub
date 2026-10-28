@@ -277,19 +277,6 @@ internal sealed class GpayOrderSync : IGpayOrderSync
         return query.FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task<string?> GetPreviousOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
-    {
-        var query =
-            from history in _dbContext.Set<GpayOrderHistoryRow>().AsNoTracking()
-            join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
-                on history.StatusId equals status.Id
-            where history.OrderId == orderId
-            orderby history.Date descending
-            select status.Name;
-
-        return query.FirstOrDefaultAsync(cancellationToken);
-    }
-
     private static string NormalizeBank(string bankName)
     {
         var normalized = bankName.ToUpperInvariant();
