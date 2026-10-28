@@ -25,7 +25,7 @@ public class BankingEntityFrameworkCoreModule : AbpModule
 
         Configure<AbpDbContextOptions>(options =>
         {
-            options.UseSqlServer();
+            options.UseSqlServer(sql => sql.UseCompatibilityLevel(120));
         });
 
         context.Services.AddScoped<IGpayOrderSync, GpayOrderSync>();
