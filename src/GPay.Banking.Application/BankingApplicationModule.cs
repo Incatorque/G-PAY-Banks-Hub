@@ -29,6 +29,7 @@ public class BankingApplicationModule : AbpModule
 
         Configure<BankPaymentIntakeOptions>(configuration.GetSection(BankPaymentIntakeOptions.SectionName));
         context.Services.AddScoped<IInstantPaymentInitiator, InstantPaymentInitiator>();
+        context.Services.AddTransient<Helpers.IGpayPaymentNotificationQueue, Helpers.GpayPaymentNotificationQueue>();
 
         context.Services.AddHttpContextAccessor();
 
