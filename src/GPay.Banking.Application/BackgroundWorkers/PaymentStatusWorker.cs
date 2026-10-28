@@ -76,7 +76,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 
                 var status = result.Data;
                 var normalizedStatus = status.RawStatusLabel ?? status.Status;
-                var previousOrderStatus = await gpay.GetPreviousOrderStatusAsync(order.OrderId);
+                var previousOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
 
                 await gpay.ApplyPaymentAsync(new GpayPaymentSyncRequest
                 {

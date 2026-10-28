@@ -67,6 +67,24 @@ internal sealed class AbsaInstantPaymentService : IInstantPaymentService
             }
 
             var gpayResponse = _mapper.ToGpayInitiateResponse(absaResponse, request);
+            if (gpayResponse.RawStatusLabel is "Failed" or "Duplicate")
+            {
+                var errorCode = gpayResponse.ErrorCode ??
+                    (gpayResponse.RawStatusLabel == "Duplicate" ? "PAYMENT_DUPLICATE" : "PAYMENT_REJECTED");
+                var errorMessage = gpayResponse.ResultDescription ?? "Absa rejected the payment.";
+                var apiError = _errorMapper.Map(errorCode, errorMessage);
+                AbsaServiceLogging.LogOutcome(
+                    _logger,
+                    "payment initiate",
+                    request,
+                    absaResponse,
+                    false,
+                    apiError.Code,
+                    apiError.Message,
+                    correlationId);
+                return ApiResult<InstantPaymentResponse>.Fail(apiError, correlationId);
+            }
+
             AbsaServiceLogging.LogOutcome(
                 _logger,
                 "payment initiate",

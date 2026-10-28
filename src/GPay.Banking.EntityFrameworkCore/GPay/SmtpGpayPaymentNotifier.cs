@@ -81,11 +81,22 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             .Replace("{{StatusDescription}}", Encode(statusDescription), StringComparison.Ordinal)
             .Replace("{{TransactionReference}}", Encode(notification.TransactionReference ?? "-"), StringComparison.Ordinal);
 
-        await SendAsync(
-            "PaymentInitiatedRecipients",
-            "ABSA CAPI - Payment Initiation Status Report",
-            html,
-            cancellationToken);
+        await SendAsync("PaymentInitiatedRecipients", BuildSubject(notification), html, cancellationToken);
+    }
+
+    private static string BuildSubject(GpayPaymentInitiatedNotification notification)
+    {
+        var operation = notification.IsStatusCheck ? "Payment Status" : "Payment Initiation";
+        var outcome = notification.IsError ? "Failed" : notification.Status;
+        var subject = string.Join(
+            " - ",
+            new[] { notification.Bank, operation, outcome, notification.OrderNumber }
+                .Select(value => value.Replace("\r", string.Empty, StringComparison.Ordinal)
+                    .Replace("\n", string.Empty, StringComparison.Ordinal)
+                    .Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+
+        return subject.Length <= 200 ? subject : subject[..200];
     }
 
     private async Task SendAsync(

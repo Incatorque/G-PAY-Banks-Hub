@@ -18,9 +18,6 @@ public interface IGpayOrderSync
     /// <summary>Reads the current GPay order status immediately before bank submission.</summary>
     Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
 
-    /// <summary>Reads the previous GPay order status.</summary>
-    Task<string?> GetPreviousOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Updates <c>Order.FkOrderStatusID</c> and inserts an <c>OrderHistory</c> audit row.
     /// Order item rows are left unchanged because their status foreign key targets <c>OrderItemStatus</c>.
