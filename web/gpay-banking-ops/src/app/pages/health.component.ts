@@ -1,12 +1,13 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { DatePipe, NgClass } from '@angular/common';
+import { DatePipe } from '@angular/common';
+import { finalize } from 'rxjs';
 import { OpsApiService } from '../services/ops-api.service';
 import { PlatformHealthResponse } from '../models/ops.models';
 
 @Component({
   selector: 'app-health',
   standalone: true,
-  imports: [DatePipe, NgClass],
+  imports: [DatePipe],
   templateUrl: './health.component.html',
   styleUrl: './health.component.css'
 })
@@ -24,22 +25,11 @@ export class HealthComponent implements OnInit {
   refresh(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.api.getHealth().subscribe({
-      next: (data) => {
-        this.health.set(data);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.error.set(err?.message ?? 'Failed to load health.');
-        this.loading.set(false);
-      }
-    });
-  }
-
-  statusLabel(status: string | number): string {
-    if (typeof status === 'number') {
-      return ['Healthy', 'Unhealthy', 'Critical'][status] ?? String(status);
-    }
-    return status;
+    this.api.getHealth()
+      .pipe(finalize(() => this.loading.set(false)))
+      .subscribe({
+        next: (data) => this.health.set(data),
+        error: (err) => this.error.set(err?.message ?? 'Failed to load health.')
+      });
   }
 }

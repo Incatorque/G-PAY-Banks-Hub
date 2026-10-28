@@ -1,10 +1,10 @@
-using System;
+using GPay.Banking.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
-using System.IO;
 
 namespace GPay.Banking;
 
@@ -12,12 +12,7 @@ public class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
-            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-            .Enrich.FromLogContext()
-            .WriteTo.Async(c => c.Console())
-            .CreateLogger();
+        Log.Logger = CreateLoggerConfiguration().CreateLogger();
 
         try
         {
@@ -25,11 +20,7 @@ public class Program
             Directory.CreateDirectory(logDirectory);
             await Log.CloseAndFlushAsync();
 
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-                .Enrich.FromLogContext()
-                .WriteTo.Async(c => c.Console())
+            Log.Logger = CreateLoggerConfiguration()
                 .WriteTo.Async(c => c.File(
                     Path.Combine(logDirectory, "BankHub-.log"),
                     rollingInterval: RollingInterval.Day,
@@ -56,6 +47,14 @@ public class Program
 
             await builder.AddApplicationAsync<BankingHttpApiHostModule>();
             var app = builder.Build();
+            app.MapGet("/health", async (BankingDbContext db, CancellationToken cancellationToken) =>
+            {
+                var isHealthy = await db.Database.CanConnectAsync(cancellationToken);
+                return Results.Json(
+                    new { status = isHealthy ? "Healthy" : "Unhealthy", checkedAtUtc = DateTimeOffset.UtcNow },
+                    statusCode: isHealthy ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+            }).AllowAnonymous();
+
             await app.InitializeApplicationAsync();
             await app.RunAsync();
             return 0;
@@ -70,4 +69,11 @@ public class Program
             await Log.CloseAndFlushAsync();
         }
     }
+
+    private static LoggerConfiguration CreateLoggerConfiguration() =>
+        new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .Enrich.FromLogContext()
+            .WriteTo.Async(c => c.Console());
 }

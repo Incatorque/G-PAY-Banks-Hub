@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GPay.Banking.Services.Absa.Api.Clients;
 using GPay.Banking.Services.Absa.Api.Mapping;
 using GPay.Banking;
@@ -10,10 +9,8 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// <summary>
 /// Absa instant payment (PayShap / RTC) implementation per MIG – Payment API v1.8.
 /// </summary>
-public sealed class AbsaInstantPaymentService : IInstantPaymentService
+internal sealed class AbsaInstantPaymentService : IInstantPaymentService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly IAbsaCapiClient _capiClient;
     private readonly IAbsaPaymentMapper _mapper;
     private readonly IBankErrorMapper _errorMapper;
@@ -38,17 +35,17 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
     public async Task<ApiResult<InstantPaymentResponse>> PayAsync(InstantPaymentRequest request, string correlationId, CancellationToken cancellationToken = default)
     {
         var validationError = ValidatePay(request);
-        
+
         if (validationError is not null)
         {
-            LogPayOutcome(request, null, false, validationError.Code, validationError.Message, correlationId);
+            AbsaServiceLogging.LogOutcome(_logger, "payment initiate", request, null, false, validationError.Code, validationError.Message, correlationId);
 
             return ApiResult<InstantPaymentResponse>.Fail(validationError, correlationId);
         }
 
         try
         {
-            var absaRequest = _mapper.ToAbsaInitiateRequest(request, correlationId);
+            var absaRequest = _mapper.ToAbsaInitiateRequest(request);
 
             _logger.LogInformation(
                 "Absa payment initiate start Amount={Amount} Rail={Rail} TxRef={TxRef} CorrelationId={CorrelationId}",
@@ -65,12 +62,14 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
                 var code = first.Code ?? "PAYMENT_ERROR";
                 var message = first.Description ?? first.Message ?? "Absa payment initiate failed.";
                 var apiError = _errorMapper.Map(code, message);
-                LogPayOutcome(request, absaResponse, false, apiError.Code, apiError.Message, correlationId);
+                AbsaServiceLogging.LogOutcome(_logger, "payment initiate", request, absaResponse, false, apiError.Code, apiError.Message, correlationId);
                 return ApiResult<InstantPaymentResponse>.Fail(apiError, correlationId);
             }
 
             var gpayResponse = _mapper.ToGpayInitiateResponse(absaResponse, request);
-            LogPayOutcome(
+            AbsaServiceLogging.LogOutcome(
+                _logger,
+                "payment initiate",
                 request,
                 absaResponse,
                 true,
@@ -84,7 +83,7 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
         {
             _logger.LogError(ex, "Absa payment initiate failed CorrelationId={CorrelationId}", correlationId);
             var apiError = _errorMapper.Map("PAYMENT_EXCEPTION", ex.Message);
-            LogPayOutcome(request, null, false, apiError.Code, apiError.Message, correlationId);
+            AbsaServiceLogging.LogOutcome(_logger, "payment initiate", request, null, false, apiError.Code, apiError.Message, correlationId);
             return ApiResult<InstantPaymentResponse>.Fail(apiError, correlationId);
         }
     }
@@ -98,7 +97,7 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
         var validationError = ValidateStatus(request);
         if (validationError is not null)
         {
-            LogStatusOutcome(request, null, false, validationError.Code, validationError.Message, correlationId);
+            AbsaServiceLogging.LogOutcome(_logger, "payment status", request, null, false, validationError.Code, validationError.Message, correlationId);
             return ApiResult<PaymentStatusResponse>.Fail(validationError, correlationId);
         }
 
@@ -118,12 +117,14 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
                 var code = first.Code ?? "PAYMENT_STATUS_ERROR";
                 var message = first.Description ?? first.Message ?? "Absa payment status failed.";
                 var apiError = _errorMapper.Map(code, message);
-                LogStatusOutcome(request, absaResponse, false, apiError.Code, apiError.Message, correlationId);
+                AbsaServiceLogging.LogOutcome(_logger, "payment status", request, absaResponse, false, apiError.Code, apiError.Message, correlationId);
                 return ApiResult<PaymentStatusResponse>.Fail(apiError, correlationId);
             }
 
             var gpayResponse = _mapper.ToGpayStatusResponse(absaResponse, request);
-            LogStatusOutcome(
+            AbsaServiceLogging.LogOutcome(
+                _logger,
+                "payment status",
                 request,
                 absaResponse,
                 true,
@@ -140,7 +141,7 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
                 "Absa payment status failed CorrelationId={CorrelationId}",
                 correlationId);
             var apiError = _errorMapper.Map("PAYMENT_STATUS_EXCEPTION", ex.Message);
-            LogStatusOutcome(request, null, false, apiError.Code, apiError.Message, correlationId);
+            AbsaServiceLogging.LogOutcome(_logger, "payment status", request, null, false, apiError.Code, apiError.Message, correlationId);
             return ApiResult<PaymentStatusResponse>.Fail(apiError, correlationId);
         }
     }
@@ -188,30 +189,6 @@ public sealed class AbsaInstantPaymentService : IInstantPaymentService
         }
 
         return null;
-    }
-
-    private void LogPayOutcome(InstantPaymentRequest request, object? response, bool success, string? code, string? message, string correlationId)
-    {
-        _logger.LogInformation(
-            "Absa payment initiate completed Success={Success} Code={Code} Message={Message} CorrelationId={CorrelationId} Request={Request} Response={Response}",
-            success,
-            code,
-            message,
-            correlationId,
-            JsonSerializer.Serialize(request, JsonOptions),
-            response is null ? null : JsonSerializer.Serialize(response, JsonOptions));
-    }
-
-    private void LogStatusOutcome(PaymentStatusRequest request, object? response, bool success, string? code, string? message, string correlationId)
-    {
-        _logger.LogInformation(
-            "Absa payment status completed Success={Success} Code={Code} Message={Message} CorrelationId={CorrelationId} Request={Request} Response={Response}",
-            success,
-            code,
-            message,
-            correlationId,
-            JsonSerializer.Serialize(request, JsonOptions),
-            response is null ? null : JsonSerializer.Serialize(response, JsonOptions));
     }
 
 }

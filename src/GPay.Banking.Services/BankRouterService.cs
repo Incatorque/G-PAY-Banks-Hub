@@ -1,26 +1,24 @@
 using GPay.Banking.Domain;
 using GPay.Banking.Domain.Dtos;
 using GPay.Banking.Services.Absa;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace GPay.Banking.Services;
 
 /// <summary>
 /// Selects the bank-specific payment adapter and forwards normalized payment requests.
 /// </summary>
-public sealed class BankRouterService : IBankRouterService
+internal sealed class BankRouterService : IBankRouterService
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IBankCapabilityResolver _capabilityResolver;
     private readonly BankPaymentIntakeOptions _intakeOptions;
     private readonly AbsaCapiOptions _absaOptions;
 
     public BankRouterService(
-        IServiceProvider serviceProvider,
+        IBankCapabilityResolver capabilityResolver,
         IOptions<BankPaymentIntakeOptions> intakeOptions,
         IOptions<AbsaCapiOptions> absaOptions)
     {
-        _serviceProvider = serviceProvider;
+        _capabilityResolver = capabilityResolver;
         _intakeOptions = intakeOptions.Value;
         _absaOptions = absaOptions.Value;
     }
@@ -51,20 +49,8 @@ public sealed class BankRouterService : IBankRouterService
         return service.GetStatusAsync(request, correlationId, cancellationToken);
     }
 
-    private IInstantPaymentService ResolveInstantPaymentService(BankCode bank)
-    {
-        var serviceKey = bank switch
-        {
-            BankCode.Absa => BankCode.Absa.ToString(),
-            BankCode.Fnb => BankCode.Fnb.ToString(),
-            BankCode.Nedbank => BankCode.Nedbank.ToString(),
-            _ => throw new NotSupportedException($"Instant payments are not supported for bank '{bank}'.")
-        };
-
-        return _serviceProvider.GetKeyedService<IInstantPaymentService>(serviceKey)
-            ?? throw new NotSupportedException(
-                $"No instant payment adapter is registered for bank '{bank}'.");
-    }
+    private IInstantPaymentService ResolveInstantPaymentService(BankCode bank) =>
+        _capabilityResolver.GetInstantPayment(bank);
 
     private static string ResolvePaymentRail(BankCode bank)
     {
@@ -86,30 +72,18 @@ public sealed class BankRouterService : IBankRouterService
             return request;
         }
 
-        var bankOptions = bank switch
-        {
-            BankCode.Absa => _intakeOptions.Absa,
-            BankCode.Fnb => _intakeOptions.Fnb,
-            BankCode.Nedbank => _intakeOptions.Nedbank,
-            _ => throw new NotSupportedException($"Payment intake is not configured for bank '{bank}'.")
-        };
-
-        var configuredSourceAccount = bank == BankCode.Absa
-            ? FirstConfigured(bankOptions.SourceAccountNumber, _absaOptions.DefaultSourceAccountNumber)
-            : FirstConfigured(bankOptions.SourceAccountNumber);
-        var configuredSourceShortName = bank == BankCode.Absa
-            ? FirstConfigured(bankOptions.SourceShortName, _absaOptions.DefaultSourceShortName)
-            : FirstConfigured(bankOptions.SourceShortName);
+        var bankOptions = _intakeOptions.ForBank(bank);
+        var configuredSourceAccount = StringValueResolver.FirstNonEmpty(
+            bankOptions.SourceAccountNumber,
+            bank == BankCode.Absa ? _absaOptions.DefaultSourceAccountNumber : null);
+        var configuredSourceShortName = StringValueResolver.FirstNonEmpty(
+            bankOptions.SourceShortName,
+            bank == BankCode.Absa ? _absaOptions.DefaultSourceShortName : null);
 
         return request with
         {
-            FromAccountNumber = FirstConfigured(configuredSourceAccount, request.FromAccountNumber)!,
-            FromShortName = FirstConfigured(configuredSourceShortName, request.FromShortName)
+            FromAccountNumber = StringValueResolver.FirstNonEmpty(configuredSourceAccount, request.FromAccountNumber)!,
+            FromShortName = StringValueResolver.FirstNonEmpty(configuredSourceShortName, request.FromShortName)
         };
-    }
-
-    private static string? FirstConfigured(params string?[] values)
-    {
-        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
     }
 }

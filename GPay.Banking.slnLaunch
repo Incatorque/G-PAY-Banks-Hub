@@ -1,15 +1,11 @@
 [
   {
-    "Name": "Orchestrator (Swagger)",
+    "Name": "Banking API",
     "Projects": [
       {
         "Path": "src\\GPay.Banking.HttpApi.Host\\GPay.Banking.HttpApi.Host.csproj",
         "Action": "Start"
       }
     ]
-  },
-  {
-    "Name": "Orchestrator + Absa worker",
-    "Projects": []
   }
 ]

@@ -1,5 +1,4 @@
 using GPay.Banking.Domain;
-using Microsoft.Extensions.Logging;
 
 namespace GPay.Banking.Services.Absa.Api.Clients;
 
@@ -8,8 +7,7 @@ internal static class AbsaCallAudit
     public static async Task WriteAsync(
         IBankApiCallAuditor auditor,
         ILogger logger,
-        BankApiCallAuditEntry entry,
-        CancellationToken cancellationToken)
+        BankApiCallAuditEntry entry)
     {
         try
         {

@@ -64,11 +64,6 @@ public sealed class AccountVerificationResponse
     public string? AccountHolderName { get; init; }
 
     /// <summary>
-    /// Account status returned by the bank (e.g. ACTIVE).
-    /// </summary>
-    public string? AccountStatus { get; init; }
-
-    /// <summary>
     /// Whether the account has been open longer than 3 months (Absa AVS ValueList).
     /// </summary>
     public bool? AccountOpenLongerThan3Months { get; init; }

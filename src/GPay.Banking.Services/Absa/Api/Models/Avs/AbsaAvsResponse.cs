@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using GPay.Banking.Services;
 
 namespace GPay.Banking.Services.Absa.Api.Models.Avs;
 
@@ -39,41 +40,19 @@ public sealed class AbsaAvsResponse
     /// Normalized status string (e.g. "5", "001").
     /// </summary>
     [JsonIgnore]
-    public string StatusCode =>
-        Status switch
-        {
-            null => string.Empty,
-            string s => s.Trim(),
-            System.Text.Json.JsonElement el when el.ValueKind == System.Text.Json.JsonValueKind.Number => el.GetRawText(),
-            System.Text.Json.JsonElement el when el.ValueKind == System.Text.Json.JsonValueKind.String => el.GetString()?.Trim() ?? string.Empty,
-            _ => Status.ToString()?.Trim() ?? string.Empty
-        };
+    public string StatusCode => JsonElementReader.ReadScalarString(Status);
 
     /// <summary>
     /// True when Status indicates a completed success result with match criteria.
     /// </summary>
     [JsonIgnore]
-    public bool IsSuccessStatus
-    {
-        get
-        {
-            var s = StatusCode;
-            return s is "000" or "0" or "2" or "3" or "4" or "5" or "00";
-        }
-    }
+    public bool IsSuccessStatus => StatusCode is "000" or "0" or "2" or "3" or "4" or "5" or "00";
 
     /// <summary>
     /// True when Status indicates pending (non-Absa first hop).
     /// </summary>
     [JsonIgnore]
-    public bool IsPendingStatus
-    {
-        get
-        {
-            var s = StatusCode;
-            return s is "001" or "1";
-        }
-    }
+    public bool IsPendingStatus => StatusCode is "001" or "1";
 
     /// <summary>
     /// True when Absa returned ErrorList items and no usable ValueList.

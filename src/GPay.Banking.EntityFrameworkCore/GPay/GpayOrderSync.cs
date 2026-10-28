@@ -7,7 +7,7 @@ namespace GPay.Banking.EntityFrameworkCore.GPay;
 /// <summary>
 /// Reads PayShap orders from the shared GPay database through EF Core LINQ.
 /// </summary>
-public sealed class GpayOrderSync : IGpayOrderSync
+internal sealed class GpayOrderSync : IGpayOrderSync
 {
     private const string PaymentAcceptedTransactionCode = "3PIM Transaction";
 
@@ -129,9 +129,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
                 OrderId = row.OrderId,
                 OrderNumber = row.OrderNumber.ToString(),
                 Bank = NormalizeBank(row.BankName),
-                Reference = string.IsNullOrWhiteSpace(row.ReferenceNumber)
-                    ? row.OrderNumber.ToString()
-                    : row.ReferenceNumber,
+                Reference = ResolvePaymentReference(row.ReferenceNumber, row.OrderNumber),
                 Amount = row.Amount,
                 Currency = row.Currency,
                 FromAccountNumber = row.FromAccountNumber,
@@ -141,10 +139,23 @@ public sealed class GpayOrderSync : IGpayOrderSync
             })
             .ToList();
 
+        var orderIds = candidates.Select(order => order.OrderId).ToArray();
+        var currentStatuses = new Dictionary<Guid, string>();
+        if (orderIds.Length > 0)
+        {
+            currentStatuses = await (
+                from order in _dbContext.Set<GpayOrderRow>().AsNoTracking()
+                join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+                    on order.StatusId equals status.Id
+                where orderIds.Contains(order.Id)
+                select new { order.Id, status.Name })
+                .ToDictionaryAsync(row => row.Id, row => row.Name, cancellationToken);
+        }
+
         var eligibleCandidates = new List<GpayPaymentOrderCandidate>(candidates.Count);
         foreach (var order in candidates)
         {
-            var currentOrderStatus = await GetOrderStatusAsync(order.OrderId, cancellationToken);
+            currentStatuses.TryGetValue(order.OrderId, out var currentOrderStatus);
             if (!string.Equals(currentOrderStatus, "PRS", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation(
@@ -187,6 +198,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
     }
 
     public async Task<IReadOnlyList<GpayPaymentStatusCandidate>> GetOrdersForStatusCheckAsync(
+        int batchSize,
         CancellationToken cancellationToken = default)
     {
         var startOfToday = DateTime.Today;
@@ -205,7 +217,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
                   && status.Name.ToUpper() != "ERROR"
                   && status.Name.ToUpper() != "COMPLETED"
                   && status.Name.ToUpper() != "RECONCILED"
-                  && status.Name.ToLower() != "PRS"
+                  && status.Name.ToUpper() != "PRS"
             orderby order.OrderDate, order.OrderNumber
             select new
             {
@@ -231,16 +243,14 @@ public sealed class GpayOrderSync : IGpayOrderSync
                     .Sum(item => (item.Price ?? 0m) * (item.Quantity ?? 0m))
             };
 
-        var rows = await query.ToListAsync(cancellationToken);
+        var rows = await query.Take(Math.Max(1, batchSize)).ToListAsync(cancellationToken);
         var candidates = rows
             .Select(row => new GpayPaymentStatusCandidate
             {
                 OrderId = row.Id,
                 OrderNumber = row.OrderNumber.ToString(),
                 Bank = NormalizeBank(row.BankName),
-                Reference = string.IsNullOrWhiteSpace(row.ReferenceNumber)
-                    ? row.OrderNumber.ToString()
-                    : row.ReferenceNumber,
+                Reference = ResolvePaymentReference(row.ReferenceNumber, row.OrderNumber),
                 Amount = row.Amount,
                 Currency = row.Currency ?? string.Empty,
                 FromAccountNumber = row.FromAccountNumber,
@@ -269,13 +279,13 @@ public sealed class GpayOrderSync : IGpayOrderSync
 
     public Task<string?> GetPreviousOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
     {
-        var query = (from order in _dbContext.Set<GpayOrderHistoryRow>().AsNoTracking()
-                     join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
-                          on order.StatusId equals status.Id
-                     where order.Id == orderId
-                    orderby order.Date descending
-                     select status.Name);
-
+        var query =
+            from history in _dbContext.Set<GpayOrderHistoryRow>().AsNoTracking()
+            join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+                on history.StatusId equals status.Id
+            where history.OrderId == orderId
+            orderby history.Date descending
+            select status.Name;
 
         return query.FirstOrDefaultAsync(cancellationToken);
     }
@@ -302,6 +312,9 @@ public sealed class GpayOrderSync : IGpayOrderSync
         return bankName.Trim();
     }
 
+    private static string ResolvePaymentReference(string? reference, int orderNumber) =>
+        string.IsNullOrWhiteSpace(reference) ? orderNumber.ToString() : reference;
+
     public async Task ApplyPaymentAsync(
         GpayPaymentSyncRequest request,
         CancellationToken cancellationToken = default)
@@ -313,7 +326,7 @@ public sealed class GpayOrderSync : IGpayOrderSync
             return;
         }
 
-        var query = _dbContext.Set<GpayOrderRow>().AsQueryable();
+        var query = _dbContext.Set<GpayOrderRow>();
         GpayOrderRow? order = null;
         if (request.GpayOrderId.HasValue)
         {
@@ -458,11 +471,11 @@ public sealed class GpayOrderSync : IGpayOrderSync
             return;
         }
 
-        var reference = FirstNonEmpty(
+        var reference = StringValueResolver.FirstNonEmpty(
             request.Reference,
             order.ReferenceNumber,
             request.TransactionReference,
-            order.OrderNumber.ToString());
+            order.OrderNumber.ToString())!;
 
         var existingStatement = await _dbContext.Set<GpayEntityBankStatementRow>()
             .FirstOrDefaultAsync(
@@ -478,8 +491,8 @@ public sealed class GpayOrderSync : IGpayOrderSync
             var statement = new GpayEntityBankStatementRow
             {
                 Id = statementId,
-                Description = reference.Length <= 250 ? reference : reference[..250],
-                ReferenceNumber = reference.Length <= 50 ? reference : reference[..50],
+                Description = Truncate(reference, 250)!,
+                ReferenceNumber = Truncate(reference, 50)!,
                 TransactionDate = now,
                 Amount = -Math.Abs(amount),
                 SyncDate = now,
@@ -524,9 +537,6 @@ public sealed class GpayOrderSync : IGpayOrderSync
 
         order.EntityBankStatementId = statementId;
     }
-
-    private static string FirstNonEmpty(params string?[] values) =>
-        values.First(value => !string.IsNullOrWhiteSpace(value))!.Trim();
 
     private static string? Truncate(string? value, int maxLength) =>
         string.IsNullOrWhiteSpace(value)

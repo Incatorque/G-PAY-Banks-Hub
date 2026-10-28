@@ -17,6 +17,11 @@ namespace GPay.Banking;
 [Authorize]
 public class CallbackRegistrationAppService : ApplicationService, ICallbackRegistrationAppService
 {
+    private delegate Task<ApiResult<PaymentCallbackRegistrationResponse>> RegistrationOperation(
+        IPaymentCallbackRegistrationService service,
+        PaymentCallbackRegistrationRequest request,
+        string correlationId);
+
     private readonly IBankCapabilityResolver _resolver;
     private readonly AbsaCapiOptions _absaOptions;
     private readonly BankCallbackOptions _callbackOptions;
@@ -46,9 +51,9 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
         {
             Bank = "Absa",
             RecommendedInboundUri = inbound,
-            ConfiguredUri = NullIfEmpty(_absaOptions.PaymentCallbackUri),
+            ConfiguredUri = StringValueResolver.FirstNonEmpty(_absaOptions.PaymentCallbackUri),
             TokenConfigured = !string.IsNullOrWhiteSpace(_absaOptions.PaymentCallbackToken),
-            ConfiguredSupportEmail = NullIfEmpty(_absaOptions.PaymentCallbackSupportEmail),
+            ConfiguredSupportEmail = StringValueResolver.FirstNonEmpty(_absaOptions.PaymentCallbackSupportEmail),
             InboundTokenConfigured = !string.IsNullOrWhiteSpace(absaBank?.PaymentToken),
             RegisterPath = _absaOptions.PaymentCallbackRegisterPath,
             UnregisterPath = _absaOptions.PaymentCallbackUnregisterPath
@@ -56,24 +61,24 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
     }
 
     /// <inheritdoc />
-    public async Task<PaymentCallbackRegistrationResultDto> RegisterAsync(RegisterPaymentCallbackRequestDto input)
-    {
-        var bank = BankCodeParser.Parse(input.Bank);
-        var correlationId = Guid.NewGuid().ToString("N");
-        var request = ResolveRegistration(input);
-        var service = _resolver.GetPaymentCallbackRegistration(bank);
-        var result = await service.RegisterAsync(request, correlationId);
-        return Map(result, correlationId);
-    }
+    public Task<PaymentCallbackRegistrationResultDto> RegisterAsync(RegisterPaymentCallbackRequestDto input) =>
+        ExecuteRegistrationAsync(input, static (service, request, correlationId) =>
+            service.RegisterAsync(request, correlationId));
 
     /// <inheritdoc />
-    public async Task<PaymentCallbackRegistrationResultDto> AmendAsync(RegisterPaymentCallbackRequestDto input)
+    public Task<PaymentCallbackRegistrationResultDto> AmendAsync(RegisterPaymentCallbackRequestDto input) =>
+        ExecuteRegistrationAsync(input, static (service, request, correlationId) =>
+            service.AmendAsync(request, correlationId));
+
+    private async Task<PaymentCallbackRegistrationResultDto> ExecuteRegistrationAsync(
+        RegisterPaymentCallbackRequestDto input,
+        RegistrationOperation operation)
     {
         var bank = BankCodeParser.Parse(input.Bank);
         var correlationId = Guid.NewGuid().ToString("N");
         var request = ResolveRegistration(input);
         var service = _resolver.GetPaymentCallbackRegistration(bank);
-        var result = await service.AmendAsync(request, correlationId);
+        var result = await operation(service, request, correlationId);
         return Map(result, correlationId);
     }
 
@@ -82,7 +87,7 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
     {
         var bank = BankCodeParser.Parse(input.Bank);
         var correlationId = Guid.NewGuid().ToString("N");
-        var uri = FirstNonEmpty(input.Uri, _absaOptions.PaymentCallbackUri)
+        var uri = StringValueResolver.FirstNonEmpty(input.Uri, _absaOptions.PaymentCallbackUri)
                   ?? throw new UserFriendlyException(
                       "Uri is required (or set AbsaCapi:PaymentCallbackUri).");
 
@@ -95,23 +100,23 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
 
     private PaymentCallbackRegistrationRequest ResolveRegistration(RegisterPaymentCallbackRequestDto input)
     {
-        var uri = FirstNonEmpty(input.Uri, _absaOptions.PaymentCallbackUri, BuildRecommendedInboundUri());
-        var token = FirstNonEmpty(input.Token, _absaOptions.PaymentCallbackToken);
-        var email = FirstNonEmpty(input.SupportEmail, _absaOptions.PaymentCallbackSupportEmail);
+        var uri = StringValueResolver.FirstNonEmpty(input.Uri, _absaOptions.PaymentCallbackUri, BuildRecommendedInboundUri());
+        var token = StringValueResolver.FirstNonEmpty(input.Token, _absaOptions.PaymentCallbackToken);
+        var email = StringValueResolver.FirstNonEmpty(input.SupportEmail, _absaOptions.PaymentCallbackSupportEmail);
 
-        if (string.IsNullOrWhiteSpace(uri))
+        if (uri is null)
         {
             throw new UserFriendlyException(
                 "Uri is required (or set AbsaCapi:PaymentCallbackUri / expose a public HTTPS host).");
         }
 
-        if (string.IsNullOrWhiteSpace(token))
+        if (token is null)
         {
             throw new UserFriendlyException(
                 "Token is required (or set AbsaCapi:PaymentCallbackToken).");
         }
 
-        if (string.IsNullOrWhiteSpace(email))
+        if (email is null)
         {
             throw new UserFriendlyException(
                 "SupportEmail is required (or set AbsaCapi:PaymentCallbackSupportEmail).");
@@ -174,20 +179,4 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
             AbsaError = AbsaErrorResponses.FromCode(d.ErrorCode, d.ResultDescription)
         };
     }
-
-    private static string? FirstNonEmpty(params string?[] values)
-    {
-        foreach (var v in values)
-        {
-            if (!string.IsNullOrWhiteSpace(v))
-            {
-                return v.Trim();
-            }
-        }
-
-        return null;
-    }
-
-    private static string? NullIfEmpty(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

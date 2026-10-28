@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GPay.Banking.Services.Absa.Api.Clients;
 using GPay.Banking.Services.Absa.Api.Mapping;
 using GPay.Banking;
@@ -12,8 +11,6 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// </summary>
 public sealed class AbsaAccountVerificationService : IAccountVerificationService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly IAbsaCapiClient _capiClient;
     private readonly IAbsaAvsMapper _mapper;
     private readonly IBankErrorMapper _errorMapper;
@@ -43,7 +40,7 @@ public sealed class AbsaAccountVerificationService : IAccountVerificationService
         var validationError = Validate(request);
         if (validationError is not null)
         {
-            LogOutcome(request, null, false, validationError.Code, validationError.Message, correlationId);
+            AbsaServiceLogging.LogOutcome(_logger, "AVS", request, null, false, validationError.Code, validationError.Message, correlationId);
             return ApiResult<AccountVerificationResponse>.Fail(validationError, correlationId);
         }
 
@@ -68,12 +65,14 @@ public sealed class AbsaAccountVerificationService : IAccountVerificationService
                     ?? first.DetailedMessages?.FirstOrDefault()?.Message
                     ?? "Absa AVS failed.";
                 var apiError = _errorMapper.Map(code, message);
-                LogOutcome(request, absaResponse, false, apiError.Code, apiError.Message, correlationId);
+                AbsaServiceLogging.LogOutcome(_logger, "AVS", request, absaResponse, false, apiError.Code, apiError.Message, correlationId);
                 return ApiResult<AccountVerificationResponse>.Fail(apiError, correlationId);
             }
 
             var gpayResponse = _mapper.ToGpayResponse(absaResponse, request.Reference);
-            LogOutcome(
+            AbsaServiceLogging.LogOutcome(
+                _logger,
+                "AVS",
                 request,
                 absaResponse,
                 gpayResponse.IsVerified,
@@ -86,7 +85,7 @@ public sealed class AbsaAccountVerificationService : IAccountVerificationService
         {
             _logger.LogError(ex, "Absa AVS failed CorrelationId={CorrelationId}", correlationId);
             var apiError = _errorMapper.Map("AVS_EXCEPTION", ex.Message);
-            LogOutcome(request, null, false, apiError.Code, apiError.Message, correlationId);
+            AbsaServiceLogging.LogOutcome(_logger, "AVS", request, null, false, apiError.Code, apiError.Message, correlationId);
             return ApiResult<AccountVerificationResponse>.Fail(apiError, correlationId);
         }
     }
@@ -144,23 +143,6 @@ public sealed class AbsaAccountVerificationService : IAccountVerificationService
         return null;
     }
 
-    private void LogOutcome(
-        AccountVerificationRequest request,
-        object? response,
-        bool success,
-        string? code,
-        string? message,
-        string correlationId)
-    {
-        _logger.LogInformation(
-            "Absa AVS completed Success={Success} Code={Code} Message={Message} CorrelationId={CorrelationId} Request={Request} Response={Response}",
-            success,
-            code,
-            message,
-            correlationId,
-            JsonSerializer.Serialize(request, JsonOptions),
-            response is null ? null : JsonSerializer.Serialize(response, JsonOptions));
-    }
 }
 
 

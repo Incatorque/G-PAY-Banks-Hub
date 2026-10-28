@@ -4,7 +4,7 @@ using Volo.Abp.DependencyInjection;
 
 namespace GPay.Banking.Helpers;
 
-/// <summary>Delivers the payment initiation email outside the payment submission request.</summary>
+/// <summary>Delivers a payment lifecycle email outside the payment request.</summary>
 public sealed class GpayPaymentInitiatedNotificationJob
     : AsyncBackgroundJob<GpayPaymentInitiatedNotification>, ITransientDependency
 {

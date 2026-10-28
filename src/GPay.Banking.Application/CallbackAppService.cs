@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Helpers;
@@ -36,11 +35,12 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
     private readonly BankCallbackOptions _callbackOptions;
     private readonly IGpayOrderSync _gpayOrderSync;
 
-    public CallbackAppService(IBankCapabilityResolver resolver, 
-                              IRepository<BankHubApiCall, Guid> apiCallRepository,
-                              IHttpContextAccessor httpContextAccessor, 
-                              IOptions<BankCallbackOptions> callbackOptions, 
-                              IGpayOrderSync gpayOrderSync)
+    public CallbackAppService(
+        IBankCapabilityResolver resolver,
+        IRepository<BankHubApiCall, Guid> apiCallRepository,
+        IHttpContextAccessor httpContextAccessor,
+        IOptions<BankCallbackOptions> callbackOptions,
+        IGpayOrderSync gpayOrderSync)
     {
         _resolver = resolver;
         _apiCallRepository = apiCallRepository;
@@ -50,7 +50,7 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
     }
 
     /// <summary>
-/// Processes a bank payment status callback and updates the matching GPay order when found.
+    /// Processes a bank payment status callback and updates the matching GPay order when found.
     /// </summary>
     /// <param name="bank">
     /// Bank key: <c>Absa</c>, <c>Fnb</c>, or <c>Nedbank</c>.
@@ -67,13 +67,11 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
         var http = _httpContextAccessor.HttpContext;
         var sourceIp = CallbackSourceAllowList.GetSourceIp(http);
 
-        var bankKey = bank;
-        if (string.IsNullOrWhiteSpace(bankKey))
-        {
-            bankKey = await CallbackSourceAllowList.ResolveBankKeyAsync(
+        var bankKey = string.IsNullOrWhiteSpace(bank)
+            ? await CallbackSourceAllowList.ResolveBankKeyAsync(
                 _callbackOptions,
-                sourceIp);
-        }
+                sourceIp)
+            : bank;
 
         if (string.IsNullOrWhiteSpace(bankKey))
         {
@@ -103,27 +101,10 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             throw new UserFriendlyException("Callback body is required.");
         }
 
-        string? token = null;
-        try
-        {
-            using var doc = JsonDocument.Parse(rawJson);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                doc.RootElement.TryGetProperty("Token", out var tokenEl) &&
-                tokenEl.ValueKind == JsonValueKind.String)
-            {
-                token = tokenEl.GetString();
-            }
-        }
-        catch (JsonException)
-        {
-            // Bank adapter will reject invalid JSON.
-        }
-
         var bankCode = BankCodeParser.Parse(bankKey);
         var handler = _resolver.GetPaymentCallback(bankCode);
         var result = await handler.HandlePaymentAsync(new PaymentCallbackInbound
         {
-            Token = token,
             RawJson = rawJson
         });
 
@@ -132,22 +113,18 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             throw new AbpAuthorizationException(result.Message);
         }
 
-        if (result.IsDuplicate || result.Update is null)
-        {
-            return new CallbackAckDto
-            {
-                Success = result.Success,
-                Message = result.Message
-            };
-        }
-
-        await ApplyUpdateAsync(result.Update, bankCode);
-
-        return new CallbackAckDto
+        var acknowledgement = new CallbackAckDto
         {
             Success = result.Success,
             Message = result.Message
         };
+
+        if (!result.IsDuplicate && result.Update is not null)
+        {
+            await ApplyUpdateAsync(result.Update, bankCode);
+        }
+
+        return acknowledgement;
     }
 
     private static async Task<string> ReadBodyAsync(HttpContext? http)
@@ -167,19 +144,12 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
 
     private async Task ApplyUpdateAsync(PaymentCallbackUpdate update, BankCode bankCode)
     {
-        var bankStorageCode = BankCodeParser.ToStorageCode(bankCode);
-        var matchingCalls = await _apiCallRepository.GetListAsync(call =>
-            call.BankCode == bankStorageCode &&
-            call.Direction == "Outbound" &&
-            call.GpayOrderId.HasValue &&
-            call.Operation == "initiate" &&
-            ((!string.IsNullOrWhiteSpace(update.TransactionReference) &&
-              call.ResponseJson!.Contains(update.TransactionReference)) ||
-             (!string.IsNullOrWhiteSpace(update.ApiReference) &&
-              call.ResponseJson!.Contains(update.ApiReference))));
-        var paymentCall = matchingCalls
-            .OrderByDescending(call => call.CreationTime)
-            .FirstOrDefault();
+        var bankStorageCode = bankCode.ToString();
+        var paymentCall = await BankPaymentCallLookup.FindAsync(
+            _apiCallRepository,
+            bankStorageCode,
+            update.TransactionReference,
+            update.ApiReference);
 
         if (paymentCall?.GpayOrderId is not Guid gpayOrderId)
         {

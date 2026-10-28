@@ -3,7 +3,7 @@ namespace GPay.Banking.Services.Absa.Api.Mapping;
 /// <summary>
 /// Absa payment status codes from MIG – Payment API v1.8 (§5.3 and §6.3).
 /// </summary>
-public static class AbsaPaymentStatuses
+internal static class AbsaPaymentStatuses
 {
     /// <summary>
     /// Maps an Absa status integer to the GPay label used on payments and callbacks.

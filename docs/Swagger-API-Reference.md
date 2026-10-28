@@ -45,8 +45,7 @@ ABP conventional controllers map AppServices to:
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/app/instant-payment/initiate` | Submit PayShap/RTC payment; audits the bank API call and updates the linked GPay order. |
-| `POST` | `/api/app/instant-payment/get-status` | Live bank status; updates local record when found. |
-| `GET` | `/api/app/instant-payment/{id}` | Local record only (no bank call). |
+| `POST` | `/api/app/instant-payment/get-status` | Live bank status; updates the linked GPay order when found. |
 
 **Rails:** `RPP` (PayShap, default), `IIP` (RTC), `PAAF`.
 
@@ -62,7 +61,7 @@ ABP conventional controllers map AppServices to:
 
 **Request:** `bank`, `accountNumber`, `fromDate`, `toDate`, optional `pageSize`.
 
-**Notes:** Uses domain `IStatementService` / `ITransactionHistoryService`. Absa CAPI (Payment API v1.8) has no account-statement operation, so Absa returns `ABSA_STATEMENT_NOT_SUPPORTED`. Payment outcomes use instant-payment status; statement references come back as `sourceStatementRef` and `targetStatementRef`.
+**Notes:** Uses the domain `IStatementService`. Absa CAPI (Payment API v1.8) has no account-statement operation, so Absa returns `ABSA_STATEMENT_NOT_SUPPORTED`. Payment outcomes use instant-payment status; statement references come back as `sourceStatementRef` and `targetStatementRef`.
 
 ### Callbacks (inbound webhook)
 
@@ -149,5 +148,4 @@ Re-run the Host after doc changes so XML is regenerated and copied.
 ## Out of scope of this Swagger
 
 - Absa CAPI wire models (use Absa Postman / MIG under `GPay.Banking` Documentation).
-- Legacy Orchestrator (`src/_legacy`) — obsolete; do not register its URLs with banks.
 - Balance / statement / notification AppServices (domain ports exist; not exposed on ABP HTTP yet).

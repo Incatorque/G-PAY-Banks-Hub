@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace GPay.Banking.EntityFrameworkCore.GPay;
 
 /// <summary>SMTP notifications for GPay order lifecycle events produced by Bank Hub.</summary>
-public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
+internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
 {
     private readonly IConfiguration _configuration;
     private readonly IHostEnvironment _hostEnvironment;
@@ -31,11 +31,6 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
         CancellationToken cancellationToken = default) =>
         SendPaymentReportAsync(notification, cancellationToken);
 
-    public Task NotifyPaymentStatusCheckedAsync(
-        GpayPaymentInitiatedNotification notification,
-        CancellationToken cancellationToken = default) =>
-        SendPaymentReportAsync(notification, cancellationToken);
-
     private async Task SendPaymentReportAsync(
         GpayPaymentInitiatedNotification notification,
         CancellationToken cancellationToken)
@@ -45,8 +40,8 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
                 ? "payment-status-check-error.html"
                 : "payment-status-check-success.html"
             : notification.IsError
-                ? "paymen-initiate-error.html"
-                : "paymen-initiate.html";
+                ? "payment-initiate-error.html"
+                : "payment-initiate.html";
         var templatePath = Path.Combine(_hostEnvironment.ContentRootPath, "Templates", templateFileName);
 
         if (!File.Exists(templatePath))
@@ -85,37 +80,14 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             "PaymentInitiatedRecipients",
             "ABSA CAPI - Payment Initiation Status Report",
             html,
-            cancellationToken,
-            isBodyHtml: true);
+            cancellationToken);
     }
-
-    public Task NotifyFailureAsync(int orderNumber, string? reference, string? reason, CancellationToken cancellationToken = default) =>
-        SendAsync(
-            "FailureRecipients",
-            $"Bank Hub payment failed for order {orderNumber}",
-            $"Order {orderNumber} failed.\nReference: {reference ?? "-"}\nReason: {reason ?? "Bank reported a failure."}",
-            cancellationToken);
-
-    public Task NotifyOrderCompletedAsync(int orderNumber, string? reference, string? status, string? note, CancellationToken cancellationToken = default) =>
-        SendAsync(
-            "OrderCompletedRecipients",
-            $"Bank Hub order {orderNumber} completed",
-            $"Order {orderNumber} completed.\nReference: {reference ?? "-"}\nBank status: {status ?? "Completed"}\nDetails: {note ?? "-"}",
-            cancellationToken);
-
-    public Task NotifyOrderReconciledAsync(int orderNumber, string? reference, CancellationToken cancellationToken = default) =>
-        SendAsync(
-            "OrderReconciledRecipients",
-            $"Bank Hub order {orderNumber} reconciled",
-            $"Order {orderNumber} reconciled against its Bank Hub payment statement.\nReference: {reference ?? "-"}",
-            cancellationToken);
 
     private async Task SendAsync(
         string recipientsKey,
         string subject,
         string body,
-        CancellationToken cancellationToken,
-        bool isBodyHtml = false)
+        CancellationToken cancellationToken)
     {
         var section = _configuration.GetSection("GpayNotifications");
         var host = section["SmtpHost"];
@@ -137,7 +109,7 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
                 From = new MailAddress(from),
                 Subject = subject,
                 Body = body,
-                IsBodyHtml = isBodyHtml
+                IsBodyHtml = true
             };
             foreach (var address in recipients.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
@@ -150,11 +122,11 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
                 return;
             }
 
-            var port = int.TryParse(section["SmtpPort"], out var parsedPort) && parsedPort > 0 ? parsedPort : 25;
+            var port = PositiveInt(section["SmtpPort"], 25);
             using var client = new SmtpClient(host, port)
             {
                 EnableSsl = bool.TryParse(section["EnableSsl"], out var enableSsl) && enableSsl,
-                Timeout = (int.TryParse(section["SendTimeoutSeconds"], out var timeout) && timeout > 0 ? timeout : 30) * 1000
+                Timeout = PositiveInt(section["SendTimeoutSeconds"], 30) * 1000
             };
 
             var username = section["Username"];
@@ -173,6 +145,9 @@ public sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             _logger.LogError(ex, "Failed to send GPay payment notification. Subject: {Subject}", subject);
         }
     }
+
+    private static int PositiveInt(string? value, int fallback) =>
+        int.TryParse(value, out var parsed) && parsed > 0 ? parsed : fallback;
 
     private static string Encode(string? value) => HtmlEncoder.Default.Encode(value ?? string.Empty);
 }

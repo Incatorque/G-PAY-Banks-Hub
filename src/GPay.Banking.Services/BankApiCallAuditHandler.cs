@@ -7,22 +7,16 @@ using Microsoft.Extensions.DependencyInjection;
 namespace GPay.Banking.Services;
 
 /// <summary>Request metadata consumed by <see cref="BankApiCallAuditHandler"/>.</summary>
-public static class BankApiCallAuditMetadata
+internal static class BankApiCallAuditMetadata
 {
     public static readonly HttpRequestOptionsKey<Guid> GpayOrderId =
         new("BankHub.GpayOrderId");
-
-    public static readonly HttpRequestOptionsKey<string> CorrelationId =
-        new("BankHub.CorrelationId");
-
-    public static readonly HttpRequestOptionsKey<string> BankCode =
-        new("BankHub.BankCode");
 }
 
 /// <summary>
 /// Captures outbound bank HTTP traffic and writes it through the shared audit service.
 /// </summary>
-public sealed class BankApiCallAuditHandler : DelegatingHandler
+internal sealed class BankApiCallAuditHandler : DelegatingHandler
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<BankApiCallAuditHandler> _logger;
@@ -65,12 +59,11 @@ public sealed class BankApiCallAuditHandler : DelegatingHandler
 
             int? statusCode = response is null ? null : (int)response.StatusCode;
             var success = response?.IsSuccessStatusCode == true;
-            var bankCode = GetOption(request, BankApiCallAuditMetadata.BankCode) ?? _defaultBankCode;
+            var bankCode = _defaultBankCode;
             var orderId = request.Options.TryGetValue(BankApiCallAuditMetadata.GpayOrderId, out var gpayOrderId)
                 ? gpayOrderId
                 : FindGuid(requestBody, "GpayOrderId");
-            var correlationId = GetOption(request, BankApiCallAuditMetadata.CorrelationId)
-                ?? GetHeader(request, "X-Correlation-ID")
+            var correlationId = GetHeader(request, "X-Correlation-ID")
                 ?? FindString(requestBody, "CorrelationId")
                 ?? FindString(responseBody, "CorrelationId");
             var errorCode = !success
@@ -89,8 +82,8 @@ public sealed class BankApiCallAuditHandler : DelegatingHandler
                 Path = request.RequestUri?.AbsolutePath,
                 HttpStatus = statusCode,
                 CorrelationId = correlationId,
-                RequestJson = Redact(requestBody),
-                ResponseJson = Redact(responseBody),
+                RequestJson = AbsaApiPayloadRedactor.Redact(requestBody),
+                ResponseJson = AbsaApiPayloadRedactor.Redact(responseBody),
                 DurationMs = stopwatch.ElapsedMilliseconds,
                 Success = success,
                 ErrorCode = errorCode
@@ -152,11 +145,6 @@ public sealed class BankApiCallAuditHandler : DelegatingHandler
             : null;
     }
 
-    private static string? GetOption(HttpRequestMessage request, HttpRequestOptionsKey<string> key)
-    {
-        return request.Options.TryGetValue(key, out var value) ? value : null;
-    }
-
     private static Guid? FindGuid(string? json, string propertyName)
     {
         var value = FindString(json, propertyName);
@@ -173,7 +161,7 @@ public sealed class BankApiCallAuditHandler : DelegatingHandler
         try
         {
             using var document = JsonDocument.Parse(json);
-            return FindString(document.RootElement, propertyName);
+            return JsonElementReader.FindString(document.RootElement, propertyName);
         }
         catch (JsonException)
         {
@@ -181,42 +169,4 @@ public sealed class BankApiCallAuditHandler : DelegatingHandler
         }
     }
 
-    private static string? FindString(JsonElement element, string propertyName)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                if (property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase) &&
-                    property.Value.ValueKind == JsonValueKind.String)
-                {
-                    return property.Value.GetString();
-                }
-
-                var nestedValue = FindString(property.Value, propertyName);
-                if (nestedValue is not null)
-                {
-                    return nestedValue;
-                }
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-            {
-                var nestedValue = FindString(item, propertyName);
-                if (nestedValue is not null)
-                {
-                    return nestedValue;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static string? Redact(string? json)
-    {
-        return AbsaApiPayloadRedactor.Redact(json);
-    }
 }

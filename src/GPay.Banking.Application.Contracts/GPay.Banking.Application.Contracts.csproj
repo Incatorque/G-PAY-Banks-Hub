@@ -7,7 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GPay.Banking.Domain.Shared\GPay.Banking.Domain.Shared.csproj" />
-    <ProjectReference Include="..\GPay.Banking.Domain\GPay.Banking.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Volo.Abp.Ddd.Application.Contracts" Version="9.2.1" />

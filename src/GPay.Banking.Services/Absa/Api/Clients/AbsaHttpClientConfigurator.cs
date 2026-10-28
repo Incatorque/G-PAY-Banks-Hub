@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using System.Security.Cryptography.X509Certificates;
 using GPay.Banking.Services.Absa;
 
@@ -8,13 +7,24 @@ namespace GPay.Banking.Services.Absa.Api.Clients;
 /// <summary>
 /// Configures the Absa <see cref="HttpClient"/> including optional mTLS.
 /// </summary>
-public static class AbsaHttpClientConfigurator
+internal static class AbsaHttpClientConfigurator
 {
     /// <summary>
-    /// Applies certificate handler when configured.
+    /// Applies the shared base address, timeout, and optional certificate handler.
     /// </summary>
-    public static IHttpClientBuilder ConfigureAbsaPrimaryHandler(this IHttpClientBuilder builder)
+    internal static IHttpClientBuilder ConfigureAbsaClient(this IHttpClientBuilder builder)
     {
+        builder.ConfigureHttpClient((sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<AbsaCapiOptions>>().Value;
+            if (!string.IsNullOrWhiteSpace(options.BaseUrl))
+            {
+                client.BaseAddress = new Uri(options.BaseUrl);
+            }
+
+            client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
+        });
+
         builder.ConfigurePrimaryHttpMessageHandler(sp =>
         {
             var options = sp.GetRequiredService<IOptions<AbsaCapiOptions>>().Value;

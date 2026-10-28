@@ -52,14 +52,10 @@ public class AvsBatchProcessJob : AsyncBackgroundJob<AvsBatchProcessJobArgs>, IT
             .ToList();
 
         var parallelism = Math.Max(1, _options.DegreeOfParallelism);
-        using var gate = new SemaphoreSlim(parallelism);
-        var tasks = records.Select(async record =>
-        {
-            await gate.WaitAsync();
-            try { await ProcessRecordAsync(record.Id); }
-            finally { gate.Release(); }
-        });
-        await Task.WhenAll(tasks);
+        await Parallel.ForEachAsync(
+            records,
+            new ParallelOptions { MaxDegreeOfParallelism = parallelism },
+            async (record, _) => await ProcessRecordAsync(record.Id));
 
         await RefreshCountsAsync(args.BatchId);
         await uow.CompleteAsync();
@@ -102,22 +98,10 @@ public class AvsBatchProcessJob : AsyncBackgroundJob<AvsBatchProcessJobArgs>, IT
             catch { /* ignore */ }
         }
 
-        return new AccountVerificationRequest
-        {
-            Bank = BankCodeParser.Parse(record.BankCode),
-            AccountNumber = dto?.AccountNumber ?? record.AccountNumber,
-            BranchCode = dto?.BranchCode ?? record.BranchCode,
-            IssuingBankCode = dto?.IssuingBankCode,
-            IdentityNumber = dto?.IdentityNumber ?? record.IdentityNumber,
-            IdentityType = dto?.IdentityType,
-            AccountHolderName = dto?.AccountHolderName ?? record.AccountHolderName,
-            Initials = dto?.Initials,
-            LastName = dto?.LastName ?? record.AccountHolderName,
-            AccountType = dto?.AccountType,
-            Email = dto?.Email,
-            PhoneNumber = dto?.PhoneNumber,
-            Reference = dto?.Reference ?? record.Reference
-        };
+        return AccountVerificationRequestMapper.From(
+            dto,
+            BankCodeParser.Parse(record.BankCode),
+            record);
     }
 
     private async Task RefreshCountsAsync(Guid batchId)
@@ -145,28 +129,6 @@ public class AvsBatchProcessJob : AsyncBackgroundJob<AvsBatchProcessJobArgs>, IT
             return;
         }
 
-        var d = result.Data;
-        record.IsVerified = d.IsVerified;
-        record.ResultCode = d.ResultCode;
-        record.ResultDescription = d.ResultDescription;
-        record.BankResultCode = d.BankResultCode;
-        record.BankReference = d.BankReference;
-        record.AccountFound = d.AccountFound;
-        record.AccountOpen = d.AccountOpen;
-        record.AccountActive = d.AccountActive;
-        record.IdentityMatch = d.IdentityMatch;
-        record.NameMatch = d.NameMatch;
-        record.InitialsMatch = d.InitialsMatch;
-        record.EmailMatch = d.EmailMatch;
-        record.PhoneMatch = d.PhoneMatch;
-        record.AccountTypeMatch = d.AccountTypeMatch;
-        record.AccountOpenLongerThan3Months = d.AccountOpenLongerThan3Months;
-        record.AllowsCredit = d.AllowsCredit;
-        record.AcceptsCredit = d.AcceptsCredit;
-        record.AllowsDebit = d.AllowsDebit;
-        record.AcceptsDebit = d.AcceptsDebit;
-        record.MatchingCriteriaJson = d.MatchingCriteria is null ? null : JsonSerializer.Serialize(d.MatchingCriteria);
-        record.Status = d.IsVerified ? "Verified" : "NotVerified";
-        record.ErrorMessage = null;
+        BankHubAvsRecordMapper.Apply(record, result.Data);
     }
 }

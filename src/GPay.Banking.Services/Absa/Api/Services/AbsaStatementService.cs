@@ -12,7 +12,7 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// does not define an account statement or transaction-history operation. Payment status
 /// is exposed on the instant-payment status API (<c>api/payment/Status</c>).
 /// </remarks>
-public sealed class AbsaStatementService : IStatementService, ITransactionHistoryService
+internal sealed class AbsaStatementService : IStatementService
 {
     private readonly ILogger<AbsaStatementService> _logger;
 

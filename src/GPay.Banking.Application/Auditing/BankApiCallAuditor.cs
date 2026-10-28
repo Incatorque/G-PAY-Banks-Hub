@@ -1,4 +1,3 @@
-using Azure;
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using Microsoft.Extensions.Logging;
@@ -10,13 +9,16 @@ namespace GPay.Banking.Auditing;
 /// <summary>
 /// Writes <see cref="BankHubApiCall"/> rows in their own unit of work.
 /// </summary>
-public sealed class BankApiCallAuditor : IBankApiCallAuditor
+internal sealed class BankApiCallAuditor : IBankApiCallAuditor
 {
     private readonly IRepository<BankHubApiCall, Guid> _repository;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
     private readonly ILogger<BankApiCallAuditor> _logger;
 
-    public BankApiCallAuditor(IRepository<BankHubApiCall, Guid> repository, IUnitOfWorkManager unitOfWorkManager, ILogger<BankApiCallAuditor> logger)
+    public BankApiCallAuditor(
+        IRepository<BankHubApiCall, Guid> repository,
+        IUnitOfWorkManager unitOfWorkManager,
+        ILogger<BankApiCallAuditor> logger)
     {
         _repository = repository;
         _unitOfWorkManager = unitOfWorkManager;
@@ -48,14 +50,11 @@ public sealed class BankApiCallAuditor : IBankApiCallAuditor
 
         await uow.CompleteAsync(cancellationToken);
 
-        object?[] logParams =
-        {
+        _logger.LogInformation(
+            "Stored bank API audit row {ApiCallId} for {BankCode} {Direction} {Operation}.",
             apiCall.Id,
             apiCall.BankCode,
             apiCall.Direction,
-            apiCall.Operation,
-        };
-
-        _logger.LogInformation("Stored bank API audit row {ApiCallId} for {BankCode} {Direction} {Operation}.", logParams);
+            apiCall.Operation);
     }
 }

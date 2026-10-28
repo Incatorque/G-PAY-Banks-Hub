@@ -49,6 +49,28 @@ public class AbsaPaymentStatusMappingTests
         mapped.ApiReference.Should().Be("5255275a-83e5-4b13-9961-75b1e78f18db");
     }
 
+    [Fact]
+    public void InitiateResponse_DeserializesSharedPaymentResultFields()
+    {
+        const string body = """
+            {
+              "Status": "2",
+              "Correlations": [ { "Correlation": 4, "CorrelationId": "transaction-1" } ],
+              "ErrorList": [],
+              "Session": "session-1"
+            }
+            """;
+
+        var response = JsonSerializer.Deserialize<AbsaPaymentInitiateResponse>(body, JsonOptions);
+
+        response.Should().NotBeNull();
+        response!.StatusCode.Should().Be(2);
+        response.StatusString.Should().Be("2");
+        response.HasErrors.Should().BeFalse();
+        response.GetCorrelation(4).Should().Be("transaction-1");
+        response.Session.Should().Be("session-1");
+    }
+
     [Theory]
     [InlineData(0, "Failed")]
     [InlineData(1, "Pending")]
@@ -91,6 +113,27 @@ public class AbsaPaymentStatusMappingTests
         parsed.PaymentRail.Should().Be("RPP");
         parsed.Token.Should().Be("ClientToken");
         parsed.ErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public void Callback_Accepted_ReadsTokenOutsideDataEnvelope()
+    {
+        const string body = """
+            {
+              "Token": "ClientToken",
+              "Data": {
+                "PaymentStatus": { "Status": 3, "ErrorList": [] },
+                "TransactionRef": "TRAN1603265393666",
+                "Type": "RPP",
+                "ApiRef": "7652b7f1-e6b4-4ae6-b946-455979ed21a3"
+              }
+            }
+            """;
+
+        var parsed = AbsaPaymentCallbackParser.Parse(body);
+
+        parsed.Should().NotBeNull();
+        parsed!.Token.Should().Be("ClientToken");
     }
 
     [Fact]

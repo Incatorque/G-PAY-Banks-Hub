@@ -58,8 +58,9 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
 
         var bank = BankCodeParser.Parse(input.Bank);
         var correlationId = Guid.NewGuid().ToString("N");
-        var bankCode = BankCodeParser.ToStorageCode(bank);
-        var paymentCall = await FindPaymentCallAsync(
+        var bankCode = bank.ToString();
+        var paymentCall = await BankPaymentCallLookup.FindAsync(
+            _apiCallRepository,
             bankCode,
             input.TransactionReference,
             input.ApiReference);
@@ -73,7 +74,7 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
             },
             correlationId);
 
-        var dto = BankPaymentResultMapper.FromStatus(result, correlationId);
+        var dto = BankPaymentResultMapper.From(result, correlationId);
         if (result.Success && result.Data is not null && paymentCall?.GpayOrderId is Guid gpayOrderId)
         {
             await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
@@ -92,20 +93,4 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         return dto;
     }
 
-    private async Task<BankHubApiCall?> FindPaymentCallAsync(
-        string bankCode,
-        string? transactionReference,
-        string? apiReference)
-    {
-        var calls = await _apiCallRepository.GetListAsync(call =>
-            call.BankCode == bankCode &&
-            call.Direction == "Outbound" &&
-            call.Operation == "initiate" &&
-            call.GpayOrderId.HasValue &&
-            call.ResponseJson != null &&
-            ((!string.IsNullOrWhiteSpace(transactionReference) && call.ResponseJson.Contains(transactionReference)) ||
-             (!string.IsNullOrWhiteSpace(apiReference) && call.ResponseJson.Contains(apiReference))));
-
-        return calls.OrderByDescending(call => call.CreationTime).FirstOrDefault();
-    }
 }

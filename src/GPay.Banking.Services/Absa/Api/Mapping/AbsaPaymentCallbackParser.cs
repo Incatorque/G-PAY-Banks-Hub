@@ -1,5 +1,5 @@
 using System.Text.Json;
-using GPay.Banking.Services.Absa.Api.Models.Payment;
+using GPay.Banking.Services;
 
 namespace GPay.Banking.Services.Absa.Api.Mapping;
 
@@ -58,7 +58,8 @@ public static class AbsaPaymentCallbackParser
             }
 
             var root = doc.RootElement;
-            if (TryGet(root, "Data", out var data) && data.ValueKind == JsonValueKind.Object)
+            var topLevelToken = JsonElementReader.ReadString(root, "Token");
+            if (JsonElementReader.TryGet(root, "Data", out var data) && data.ValueKind == JsonValueKind.Object)
             {
                 root = data;
             }
@@ -68,8 +69,8 @@ public static class AbsaPaymentCallbackParser
 
             return new AbsaParsedPaymentCallback
             {
-                Token = ReadString(root, "Token"),
-                PaymentRail = ReadString(root, "Type"),
+                Token = topLevelToken ?? JsonElementReader.ReadString(root, "Token"),
+                PaymentRail = JsonElementReader.ReadString(root, "Type"),
                 StatusCode = statusCode,
                 StatusLabel = AbsaPaymentStatuses.ToLabel(statusCode),
                 TransactionReference = txRef,
@@ -88,14 +89,14 @@ public static class AbsaPaymentCallbackParser
 
     private static (int? StatusCode, string? ErrorCode, string? ErrorMessage) ReadStatus(JsonElement root)
     {
-        if (!TryGet(root, "PaymentStatus", out var paymentStatus))
+        if (!JsonElementReader.TryGet(root, "PaymentStatus", out var paymentStatus))
         {
             return (null, null, null);
         }
 
         if (paymentStatus.ValueKind is JsonValueKind.Number or JsonValueKind.String)
         {
-            return (ReadInt(paymentStatus), null, null);
+            return (JsonElementReader.ReadInt(paymentStatus), null, null);
         }
 
         if (paymentStatus.ValueKind != JsonValueKind.Object)
@@ -104,14 +105,14 @@ public static class AbsaPaymentCallbackParser
         }
 
         int? status = null;
-        if (TryGet(paymentStatus, "Status", out var statusElement))
+        if (JsonElementReader.TryGet(paymentStatus, "Status", out var statusElement))
         {
-            status = ReadInt(statusElement);
+            status = JsonElementReader.ReadInt(statusElement);
         }
 
         string? code = null;
         string? message = null;
-        if (TryGet(paymentStatus, "ErrorList", out var errors) && errors.ValueKind == JsonValueKind.Array)
+        if (JsonElementReader.TryGet(paymentStatus, "ErrorList", out var errors) && errors.ValueKind == JsonValueKind.Array)
         {
             foreach (var error in errors.EnumerateArray())
             {
@@ -120,8 +121,8 @@ public static class AbsaPaymentCallbackParser
                     continue;
                 }
 
-                code = ReadString(error, "Code");
-                message = ReadString(error, "Description") ?? ReadString(error, "Message");
+                code = JsonElementReader.ReadString(error, "Code");
+                message = JsonElementReader.ReadString(error, "Description") ?? JsonElementReader.ReadString(error, "Message");
                 break;
             }
         }
@@ -131,10 +132,10 @@ public static class AbsaPaymentCallbackParser
 
     private static (string? TransactionReference, string? ApiReference) ReadReferences(JsonElement root)
     {
-        var txRef = ReadString(root, "TransactionRef");
-        var apiRef = ReadString(root, "ApiRef");
+        var txRef = JsonElementReader.ReadString(root, "TransactionRef");
+        var apiRef = JsonElementReader.ReadString(root, "ApiRef");
 
-        if (TryGet(root, "Correlations", out var correlations) && correlations.ValueKind == JsonValueKind.Array)
+        if (JsonElementReader.TryGet(root, "Correlations", out var correlations) && correlations.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in correlations.EnumerateArray())
             {
@@ -144,12 +145,12 @@ public static class AbsaPaymentCallbackParser
                 }
 
                 var type = 0;
-                if (TryGet(item, "Correlation", out var correlation) || TryGet(item, "Type", out correlation))
+                if (JsonElementReader.TryGet(item, "Correlation", out var correlation) || JsonElementReader.TryGet(item, "Type", out correlation))
                 {
-                    type = ReadInt(correlation) ?? 0;
+                    type = JsonElementReader.ReadInt(correlation) ?? 0;
                 }
 
-                var value = ReadString(item, "CorrelationId") ?? ReadString(item, "Value");
+                var value = JsonElementReader.ReadString(item, "CorrelationId") ?? JsonElementReader.ReadString(item, "Value");
                 if (string.IsNullOrWhiteSpace(value))
                 {
                     continue;
@@ -169,51 +170,4 @@ public static class AbsaPaymentCallbackParser
         return (txRef, apiRef);
     }
 
-    private static int? ReadInt(JsonElement value)
-    {
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
-        {
-            return number;
-        }
-
-        if (value.ValueKind == JsonValueKind.String &&
-            int.TryParse(value.GetString(), out var parsed))
-        {
-            return parsed;
-        }
-
-        return null;
-    }
-
-    private static string? ReadString(JsonElement root, string name)
-    {
-        if (!TryGet(root, name, out var value) || value.ValueKind != JsonValueKind.String)
-        {
-            return null;
-        }
-
-        var text = value.GetString();
-        return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-    }
-
-    private static bool TryGet(JsonElement root, string name, out JsonElement value)
-    {
-        if (root.ValueKind != JsonValueKind.Object)
-        {
-            value = default;
-            return false;
-        }
-
-        foreach (var property in root.EnumerateObject())
-        {
-            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                value = property.Value;
-                return true;
-            }
-        }
-
-        value = default;
-        return false;
-    }
 }

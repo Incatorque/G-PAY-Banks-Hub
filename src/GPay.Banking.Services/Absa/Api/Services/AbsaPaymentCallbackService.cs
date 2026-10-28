@@ -4,15 +4,13 @@ using GPay.Banking;
 using GPay.Banking.Domain;
 using GPay.Banking.Services.Absa.Api.Clients;
 using GPay.Banking.Services.Absa.Api.Mapping;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace GPay.Banking.Services.Absa.Api.Services;
 
 /// <summary>
 /// Absa-specific payment callback validation and payload mapping.
 /// </summary>
-public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
+internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
 {
     private static readonly ConcurrentDictionary<string, byte> Seen = new(StringComparer.Ordinal);
 
@@ -43,20 +41,26 @@ public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         if (payload is null)
         {
             _logger.LogWarning("Absa payment callback JSON deserialize failed");
-            var invalid = PaymentCallbackResult.Fail("Invalid callback payload.");
-            await AuditAsync(inbound, null, invalid, started, cancellationToken);
-            return invalid;
+            return await AuditAndReturnAsync(
+                inbound,
+                null,
+                PaymentCallbackResult.Fail("Invalid callback payload."),
+                started);
         }
 
-        var expectedToken = GetAbsaPaymentToken();
+        var expectedToken = _options.Banks.TryGetValue("Absa", out var bank)
+            ? bank.PaymentToken
+            : null;
         var token = inbound.Token ?? payload.Token;
         if (string.IsNullOrWhiteSpace(expectedToken) ||
             !string.Equals(token, expectedToken, StringComparison.Ordinal))
         {
             _logger.LogWarning("Absa payment callback rejected: invalid token");
-            var unauthorized = PaymentCallbackResult.Unauthorized("Invalid token.");
-            await AuditAsync(inbound, payload, unauthorized, started, cancellationToken);
-            return unauthorized;
+            return await AuditAndReturnAsync(
+                inbound,
+                payload,
+                PaymentCallbackResult.Unauthorized("Invalid token."),
+                started);
         }
 
         var apiRef = payload.ApiReference;
@@ -67,9 +71,11 @@ public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         if (!Seen.TryAdd(key, 0))
         {
             _logger.LogInformation("Absa payment callback duplicate ignored Key={Key}", key);
-            var duplicate = PaymentCallbackResult.Duplicate();
-            await AuditAsync(inbound, payload, duplicate, started, cancellationToken);
-            return duplicate;
+            return await AuditAndReturnAsync(
+                inbound,
+                payload,
+                PaymentCallbackResult.Duplicate(),
+                started);
         }
 
         _logger.LogInformation(
@@ -89,17 +95,24 @@ public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
             ResponseJson = inbound.RawJson
         };
 
-        var ok = PaymentCallbackResult.Ok(update);
-        await AuditAsync(inbound, payload, ok, started, cancellationToken);
-        return ok;
+        return await AuditAndReturnAsync(inbound, payload, PaymentCallbackResult.Ok(update), started);
+    }
+
+    private async Task<PaymentCallbackResult> AuditAndReturnAsync(
+        PaymentCallbackInbound inbound,
+        AbsaParsedPaymentCallback? payload,
+        PaymentCallbackResult result,
+        Stopwatch started)
+    {
+        await AuditAsync(inbound, payload, result, started);
+        return result;
     }
 
     private Task AuditAsync(
         PaymentCallbackInbound inbound,
         AbsaParsedPaymentCallback? payload,
         PaymentCallbackResult result,
-        Stopwatch started,
-        CancellationToken cancellationToken)
+        Stopwatch started)
     {
         started.Stop();
         return AbsaCallAudit.WriteAsync(
@@ -117,18 +130,7 @@ public sealed class AbsaPaymentCallbackService : IPaymentCallbackService
                 DurationMs = started.ElapsedMilliseconds,
                 Success = result.Success,
                 ErrorCode = payload?.ErrorCode ?? payload?.StatusCode?.ToString()
-            },
-            cancellationToken);
+            });
     }
 
-    private string GetAbsaPaymentToken()
-    {
-        if (_options.Banks.TryGetValue("Absa", out var bank) &&
-            !string.IsNullOrWhiteSpace(bank.PaymentToken))
-        {
-            return bank.PaymentToken;
-        }
-
-        return string.Empty;
-    }
 }

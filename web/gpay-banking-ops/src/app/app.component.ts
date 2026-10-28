@@ -8,6 +8,4 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
-export class AppComponent {
-  readonly title = 'GPay Banking Ops';
-}
+export class AppComponent {}

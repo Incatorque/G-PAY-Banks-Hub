@@ -13,10 +13,9 @@ namespace GPay.Banking.Services.Tests;
 public class AccountVerificationServiceTests
 {
     [Fact]
-    public async Task VerifyAsync_Simulator_ReturnsVerifiedEnvelope()
+    public async Task VerifyAsync_ValidRequest_ReturnsMappedVerifiedEnvelope()
     {
         var capi = new Mock<IAbsaCapiClient>();
-        //capi.SetupGet(c => c.UseSimulator).Returns(true);
         capi.Setup(c => c.VerifyAccountAsync(It.IsAny<AbsaAvsRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((AbsaAvsRequest req, CancellationToken _) => new AbsaAvsResponse
             {
