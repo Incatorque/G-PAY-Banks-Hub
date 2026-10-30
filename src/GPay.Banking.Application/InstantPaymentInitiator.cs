@@ -13,7 +13,8 @@ public interface IInstantPaymentInitiator
     Task<PaymentResultDto> InitiateAsync(
         InitiatePaymentRequestDto input,
         Guid? gpayOrderId = null,
-        string? orderNumber = null);
+        string? orderNumber = null,
+        CancellationToken cancellationToken = default);
 }
 
 internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
@@ -21,27 +22,34 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
     private readonly IBankRouterService _bankRouter;
     private readonly IGpayOrderSync _gpayOrderSync;
     private readonly IGpayPaymentNotificationQueue _notifications;
+    private readonly IAbsaPaymentSchedule _absaPaymentSchedule;
     private readonly ILogger<InstantPaymentInitiator> _logger;
 
     public InstantPaymentInitiator(
         IBankRouterService bankRouter,
         IGpayOrderSync gpayOrderSync,
         IGpayPaymentNotificationQueue notifications,
+        IAbsaPaymentSchedule absaPaymentSchedule,
         ILogger<InstantPaymentInitiator> logger)
     {
         _bankRouter = bankRouter;
         _gpayOrderSync = gpayOrderSync;
         _notifications = notifications;
+        _absaPaymentSchedule = absaPaymentSchedule;
         _logger = logger;
     }
 
     public async Task<PaymentResultDto> InitiateAsync(
         InitiatePaymentRequestDto input,
         Guid? gpayOrderId = null,
-        string? orderNumber = null)
+        string? orderNumber = null,
+        CancellationToken cancellationToken = default)
     {
         var bankStorageCode = input.Bank ?? string.Empty;
         var notificationOrderNumber = orderNumber ?? gpayOrderId?.ToString("D") ?? input.Reference;
+        var notificationRail = string.IsNullOrWhiteSpace(input.PaymentRail)
+            ? "RPP"
+            : input.PaymentRail.Trim().ToUpperInvariant();
         var correlationId = Guid.NewGuid().ToString("N");
         BankCode bank;
         var domainRequest = new InstantPaymentRequest
@@ -84,14 +92,38 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
 
             bank = BankCodeParser.Parse(input.Bank);
             bankStorageCode = bank.ToString();
+
+            if (bank != BankCode.Absa && string.IsNullOrWhiteSpace(input.PaymentRail))
+            {
+                notificationRail = "-";
+            }
+
+            if (bank == BankCode.Absa && string.Equals(notificationRail, "PAAF", StringComparison.Ordinal))
+            {
+                var deferralReason = await _absaPaymentSchedule.GetPaafDeferralReasonAsync(
+                    input.Amount,
+                    input.BeneficiaryBank,
+                    cancellationToken);
+                if (deferralReason is not null)
+                {
+                    throw new PaymentDeferredException($"Payment was not submitted to Absa. {deferralReason}");
+                }
+            }
+
             var result = await _bankRouter.SubmitPaymentAsync(bank, domainRequest, correlationId);
             dto = BankPaymentResultMapper.From(result, correlationId);
+        }
+        catch (PaymentDeferredException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
             {
                 Bank = bankStorageCode,
+                Route = "API",
+                Rail = notificationRail,
                 OrderNumber = notificationOrderNumber,
                 Amount = input.Amount,
                 Currency = input.Currency,
@@ -110,6 +142,8 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
         await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
         {
             Bank = bankStorageCode,
+            Route = "API",
+            Rail = notificationRail,
             OrderNumber = notificationOrderNumber,
             Amount = dto.Amount ?? input.Amount,
             Currency = dto.Currency ?? input.Currency,

@@ -56,10 +56,16 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
         }
 
         var html = await File.ReadAllTextAsync(templatePath, cancellationToken);
-        var environmentBadge = _hostEnvironment.IsDevelopment() ||
-                               string.Equals(_hostEnvironment.EnvironmentName, "Dev", StringComparison.OrdinalIgnoreCase)
-            ? "DEV / TESTING"
-            : "PROD";
+        var environment = _configuration["GpayNotifications:Environment"];
+        var environmentName = string.IsNullOrWhiteSpace(environment)
+            ? _hostEnvironment.EnvironmentName
+            : environment.Trim();
+        var environmentBadge = environmentName.ToUpperInvariant() switch
+        {
+            "DEV" or "DEVELOPMENT" or "TEST" or "TESTING" => "DEV / TESTING",
+            "PROD" or "PRODUCTION" => "PROD",
+            _ => environmentName.ToUpperInvariant()
+        };
         var statusDescription = notification.StatusDescription ??
                                 (notification.IsError
                                     ? "The bank reported that payment settlement failed."
@@ -68,6 +74,9 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
         html = html
             .Replace("{{EnvironmentBadge}}", Encode(environmentBadge), StringComparison.Ordinal)
             .Replace("{{BankName}}", Encode(notification.Bank), StringComparison.Ordinal)
+            .Replace("{{Route}}", Encode(notification.Route), StringComparison.Ordinal)
+            .Replace("{{Rail}}", Encode(string.IsNullOrWhiteSpace(notification.Rail) ? "-" : notification.Rail), StringComparison.Ordinal)
+            .Replace("{{Rail}", Encode(string.IsNullOrWhiteSpace(notification.Rail) ? "-" : notification.Rail), StringComparison.Ordinal)
             .Replace("{{Currency}}", Encode(notification.Currency), StringComparison.Ordinal)
             .Replace("{{Amount}}", notification.Amount.ToString("N2", CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("{{OrderNumber}}", Encode(notification.OrderNumber), StringComparison.Ordinal)
@@ -107,7 +116,18 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
     {
         var section = _configuration.GetSection("GpayNotifications");
         var host = section["SmtpHost"];
-        var from = section["From"];
+        var environment = section["Environment"];
+        var environmentName = string.IsNullOrWhiteSpace(environment)
+            ? _hostEnvironment.EnvironmentName
+            : environment.Trim();
+        var environmentKey = NormalizeEnvironmentKey(environmentName);
+        var from = section[$"FromByEnvironment:{environmentKey}"];
+        if (string.IsNullOrWhiteSpace(from) && !string.Equals(environmentName, environmentKey, StringComparison.OrdinalIgnoreCase))
+        {
+            from = section[$"FromByEnvironment:{environmentName}"];
+        }
+
+        from = string.IsNullOrWhiteSpace(from) ? section["From"] : from.Trim();
         var recipients = section[recipientsKey];
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(recipients))
         {
@@ -161,6 +181,15 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             _logger.LogError(ex, "Failed to send GPay payment notification. Subject: {Subject}", subject);
         }
     }
+
+    private static string NormalizeEnvironmentKey(string environmentName) => environmentName.Trim().ToUpperInvariant() switch
+    {
+        "DEV" or "DEVELOPMENT" => "Development",
+        "TEST" or "TESTING" => "Testing",
+        "DEMO" => "Demo",
+        "PROD" or "PRODUCTION" => "Production",
+        _ => environmentName.Trim()
+    };
 
     private static int PositiveInt(string? value, int fallback) =>
         int.TryParse(value, out var parsed) && parsed > 0 ? parsed : fallback;

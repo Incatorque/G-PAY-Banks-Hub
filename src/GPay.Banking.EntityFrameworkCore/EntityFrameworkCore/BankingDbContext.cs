@@ -63,7 +63,7 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.HasIndex(x => x.Operation);
         });
 
-        // Minimal GPay read models used by the PayShap PRS poller. These deliberately
+        // Minimal GPay read models used by the Bank Hub-ready order poller. These deliberately
         // omit the legacy navigation graph, while still querying through this context.
         builder.Entity<GpayOrderRow>(b =>
         {
@@ -77,6 +77,7 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.Property(x => x.FromAccountId).HasColumnName("FkFromAccountID");
             b.Property(x => x.ToAccountId).HasColumnName("FkToAccountID");
             b.Property(x => x.ReferenceNumber).HasColumnName("ReferenceNumber");
+            b.Property(x => x.ServiceType).HasColumnName("ServiceType");
             b.Property(x => x.UserId).HasColumnName("FkUserID");
             b.Property(x => x.EntityBankStatementId).HasColumnName("FkEntityBankStatementID");
         });
@@ -189,6 +190,14 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.Property(x => x.Id).HasColumnName("PkBankID");
             b.Property(x => x.Name).HasColumnName("Name");
             b.Property(x => x.Active).HasColumnName("Active");
+        });
+
+        builder.Entity<GpayHolidayRow>(b =>
+        {
+            b.ToTable("Holiday", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("ID");
+            b.Property(x => x.Date).HasColumnName("Date");
         });
 
         builder.Entity<GpayEntityRow>(b =>

@@ -33,6 +33,13 @@
     }
   },
   "GpayNotifications": {
+    "Environment": "Development",
+    "FromByEnvironment": {
+      "Development": "",
+      "Testing": "",
+      "Demo": "",
+      "Production": ""
+    },
     "Username": "",
     "Password": ""
   }

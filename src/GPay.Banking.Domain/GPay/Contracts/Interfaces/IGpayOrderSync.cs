@@ -18,6 +18,9 @@ public interface IGpayOrderSync
     /// <summary>Reads the current GPay order status immediately before bank submission.</summary>
     Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
 
+    /// <summary>Checks the shared GPay holiday calendar for the supplied local date.</summary>
+    Task<bool> IsPublicHolidayAsync(DateTime date, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Updates <c>Order.FkOrderStatusID</c> and inserts an <c>OrderHistory</c> audit row.
     /// Order item rows are left unchanged because their status foreign key targets <c>OrderItemStatus</c>.
