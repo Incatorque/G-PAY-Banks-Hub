@@ -1,6 +1,6 @@
 namespace GPay.Banking;
 
-/// <summary>Configuration for PRS order polling and each bank's intake settings.</summary>
+/// <summary>Configuration for Bank Hub-ready order polling and each bank's intake settings.</summary>
 public sealed class BankPaymentIntakeOptions
 {
     public const string SectionName = "BankHub";
@@ -20,7 +20,7 @@ public sealed class BankPaymentIntakeOptions
         BankCode.Absa => Absa,
         BankCode.Fnb => Fnb,
         BankCode.Nedbank => Nedbank,
-        _ => throw new NotSupportedException($"PRS payment intake is not configured for '{bank}'.")
+        _ => throw new NotSupportedException($"Bank Hub-ready payment intake is not configured for '{bank}'.")
     };
 
     public IReadOnlyCollection<BankCode> EnabledBanks =>

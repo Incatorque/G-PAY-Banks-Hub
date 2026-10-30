@@ -28,6 +28,12 @@ public class BankingApplicationModule : AbpModule
         Configure<PaymentStatusPollOptions>(configuration.GetSection(PaymentStatusPollOptions.SectionName));
 
         Configure<BankPaymentIntakeOptions>(configuration.GetSection(BankPaymentIntakeOptions.SectionName));
+        Configure<SouthAfricanHolidayOptions>(configuration.GetSection(SouthAfricanHolidayOptions.SectionName));
+        context.Services.AddMemoryCache();
+        context.Services.AddHttpClient<IAbsaPaymentSchedule, AbsaPaymentSchedule>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
         context.Services.AddScoped<IInstantPaymentInitiator, InstantPaymentInitiator>();
         context.Services.AddTransient<Helpers.IGpayPaymentNotificationQueue, Helpers.GpayPaymentNotificationQueue>();
 

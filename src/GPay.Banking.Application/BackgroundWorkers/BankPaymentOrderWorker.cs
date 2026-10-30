@@ -9,7 +9,7 @@ using Volo.Abp.Uow;
 
 namespace GPay.Banking.BackgroundWorkers;
 
-/// <summary>Polls G-PAY PRS orders and routes each enabled bank to its payment adapter.</summary>
+/// <summary>Polls Bank Hub-ready G-PAY orders and routes each enabled bank to its payment adapter.</summary>
 public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 {
     public BankPaymentOrderWorker(AbpAsyncTimer timer, IServiceScopeFactory serviceScopeFactory) : base(timer, serviceScopeFactory)
@@ -51,12 +51,12 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 
         if (candidates.Count == 0)
         {
-            logger.LogDebug("No eligible PRS payment orders found for enabled banks.");
+            logger.LogDebug("No eligible Bank Hub-ready payment orders found for enabled banks.");
 
             return;
         }
 
-        logger.LogInformation("Found {OrderCount} eligible PRS payment order(s).", candidates.Count);
+        logger.LogInformation("Found {OrderCount} eligible Bank Hub-ready payment order(s).", candidates.Count);
 
         foreach (var order in candidates)
         {
@@ -66,15 +66,19 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 
                 var currentOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
 
-                if (!string.Equals(currentOrderStatus, "PRS", StringComparison.OrdinalIgnoreCase))
+                if (!IsReadyForPayment(currentOrderStatus))
                 {
                     logger.LogInformation(
-                        "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not PRS.",
+                        "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not Bank Hub-ready.",
                         order.OrderNumber,
                         currentOrderStatus ?? "<missing>");
 
                     continue;
                 }
+
+                var paymentRail = string.Equals(order.Bank, BankCode.Absa.ToString(), StringComparison.OrdinalIgnoreCase)
+                    ? ResolveAbsaPaymentRail(order)
+                    : string.Empty;
 
                 var paymentRequest = new InitiatePaymentRequestDto
                 {
@@ -86,6 +90,8 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                     Currency = order.Currency,
                     Reference = order.Reference,
                     BeneficiaryName = order.BeneficiaryName,
+                    BeneficiaryBank = order.BeneficiaryBank,
+                    PaymentRail = paymentRail,
                 };
 
                 var result = await initiator.InitiateAsync(paymentRequest, order.OrderId, order.OrderNumber);
@@ -100,6 +106,13 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                     result.Success,
                     result.CorrelationId);
             }
+            catch (PaymentDeferredException ex)
+            {
+                logger.LogInformation(
+                    "Deferring Absa PAAF payment for GPay order {OrderNumber}: {DeferralReason} The order remains queued for the next Bank Hub poll.",
+                    order.OrderNumber,
+                    ex.Message);
+            }
             catch (Exception ex)
             {
                 logger.LogError(
@@ -109,10 +122,30 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                     order.Bank,
                     order.Reference);
                 logger.LogInformation(
-                    "GPay order {OrderNumber} will be rechecked on the next PRS poll based on its GPay order status.",
+                    "GPay order {OrderNumber} will be rechecked on the next Bank Hub-ready poll based on its GPay order status.",
                     order.OrderNumber);
             }
         }
+    }
+
+    private static bool IsReadyForPayment(string? status) =>
+        string.Equals(status, "BankHub - PRS", StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveAbsaPaymentRail(GpayPaymentOrderCandidate order)
+    {
+        if (order.Amount <= 50000m)
+        {
+            return "RPP";
+        }
+
+        if (order.Amount > 250000m)
+        {
+            return "PAAF";
+        }
+
+        return string.Equals(order.ServiceType, "02", StringComparison.Ordinal)
+            ? "IIP"
+            : "PAAF";
     }
 
 }

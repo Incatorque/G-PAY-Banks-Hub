@@ -5,7 +5,7 @@ namespace GPay.Banking.EntityFrameworkCore.GPay;
 /// </summary>
 internal static class GpayOrderStatusIds
 {
-    public static readonly Guid Prs = new("7F276857-8F41-4A41-B2EA-AFD4F6C0A3BC");
+    public static readonly Guid BankHubPrs = new("a32560ca-2245-4a8b-871d-ea59ef5c3e37");
     public static readonly Guid Fprs = new("95F9D56C-0F2B-432B-98D3-BD753D8C4023");
     public static readonly Guid SubmittedToQueue = new("E93C9166-A328-4C27-9ABB-41187ACD60D8");
     public static readonly Guid PendingBankTransfer = new("CA2D245E-F1E4-48A1-89D3-33ABFCAA19D2");
@@ -19,7 +19,7 @@ internal static class GpayOrderStatusIds
 
     private static readonly Guid[] Open =
     [
-        Prs, Fprs, SubmittedToQueue, PendingBankTransfer, BankTransferProcessing
+        BankHubPrs, Fprs, SubmittedToQueue, PendingBankTransfer, BankTransferProcessing
     ];
 
     public static bool IsOpen(Guid statusId) => Open.Contains(statusId);

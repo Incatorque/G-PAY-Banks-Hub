@@ -37,6 +37,9 @@ public class InitiatePaymentRequestDto
     /// <summary>Beneficiary name.</summary>
     public string? BeneficiaryName { get; set; }
 
+    /// <summary>Beneficiary bank name/code. Used to apply Absa on-us versus off-us processing rules.</summary>
+    public string? BeneficiaryBank { get; set; }
+
     /// <summary>Payment rail: RPP (PayShap), IIP (RTC), PAAF. Default RPP.</summary>
     public string PaymentRail { get; set; } = string.Empty;
 

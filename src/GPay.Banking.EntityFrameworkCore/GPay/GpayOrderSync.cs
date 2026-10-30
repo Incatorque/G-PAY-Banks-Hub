@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace GPay.Banking.EntityFrameworkCore.GPay;
 
 /// <summary>
-/// Reads PayShap orders from the shared GPay database through EF Core LINQ.
+/// Reads Bank Hub-ready orders from the shared GPay database through EF Core LINQ.
 /// </summary>
 internal sealed class GpayOrderSync : IGpayOrderSync
 {
@@ -38,14 +38,12 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         var includeNedbank = enabledBanks.Contains(BankCode.Nedbank);
 
-        var prsOrders = _dbContext.Set<GpayOrderRow>()
+        var bankHubReadyOrders = _dbContext.Set<GpayOrderRow>()
             .AsNoTracking()
-            .Where(order =>
-                order.StatusId == GpayOrderStatusIds.Prs &&
-                order.Active == true);
+            .Where(order => order.StatusId == GpayOrderStatusIds.BankHubPrs && order.Active == true);
 
         var ordersFromEnabledBanks =
-            from order in prsOrders
+            from order in bankHubReadyOrders
             join payer in _dbContext.Set<GpayAccountRow>().AsNoTracking()
                 on order.FromAccountId equals (Guid?)payer.Id
             join payerBank in _dbContext.Set<GpayBankRow>().AsNoTracking()
@@ -53,11 +51,11 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             where payer.Active == true &&
                   payerBank.Active == true &&
                   order.FromAccountId != order.ToAccountId &&
-                  ((includeAbsa && payerBank.Name.ToUpper().Contains("ABSA"))
-                  || (includeFnb &&
-                      (payerBank.Name.ToUpper().Contains("FNB") ||
-                       payerBank.Name.ToUpper().Contains("FIRST NATIONAL")))
-                  || (includeNedbank && payerBank.Name.ToUpper().Contains("NEDBANK")))
+                  ((includeAbsa && payerBank.Name.ToUpper().Contains("ABSA")) ||
+                   (includeFnb &&
+                    (payerBank.Name.ToUpper().Contains("FNB") ||
+                     payerBank.Name.ToUpper().Contains("FIRST NATIONAL"))) ||
+                   (includeNedbank && payerBank.Name.ToUpper().Contains("NEDBANK")))
             select new
             {
                 Order = order,
@@ -69,6 +67,9 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             from candidate in ordersFromEnabledBanks
             join payee in _dbContext.Set<GpayAccountRow>().AsNoTracking()
                 on candidate.Order.ToAccountId equals (Guid?)payee.Id
+            join payeeBank in _dbContext.Set<GpayBankRow>().AsNoTracking()
+                on payee.BankId equals payeeBank.Id into payeeBankGroup
+            from payeeBank in payeeBankGroup.DefaultIfEmpty()
             join countryCurrency in _dbContext.Set<GpayCountryCurrencyRow>().AsNoTracking()
     on candidate.Payer.CountryCurrencyId equals (int?)countryCurrency.Id
     into countryCurrencyGroup
@@ -84,6 +85,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 candidate.Payer,
                 candidate.Bank,
                 Payee = payee,
+                PayeeBankName = payeeBank == null ? null : payeeBank.Name,
                 Currency = currency.Code
             };
 
@@ -110,9 +112,11 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 candidate.Candidate.Order.ReferenceNumber,
                 BankName = candidate.Candidate.Bank.Name,
                 candidate.Amount,
+                candidate.Candidate.Order.ServiceType,
                 FromAccountNumber = candidate.Candidate.Payer.AccountNumber,
                 ToAccountNumber = candidate.Candidate.Payee.AccountNumber,
                 ToBranchCode = candidate.Candidate.Payee.BranchCode,
+                ToBankName = candidate.Candidate.PayeeBankName,
                 candidate.Candidate.Currency,
                 BeneficiaryName = _dbContext.Set<GpayEntityRow>()
                     .Where(entity => entity.Id == candidate.Candidate.Payee.EntityId)
@@ -130,11 +134,13 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 OrderNumber = row.OrderNumber.ToString(),
                 Bank = NormalizeBank(row.BankName),
                 Reference = ResolvePaymentReference(row.ReferenceNumber, row.OrderNumber),
+                ServiceType = row.ServiceType,
                 Amount = row.Amount,
                 Currency = row.Currency,
                 FromAccountNumber = row.FromAccountNumber,
                 ToAccountNumber = row.ToAccountNumber,
                 ToBranchCode = row.ToBranchCode,
+                BeneficiaryBank = string.IsNullOrWhiteSpace(row.ToBankName) ? string.Empty : NormalizeBank(row.ToBankName),
                 BeneficiaryName = row.BeneficiaryName
             })
             .ToList();
@@ -156,10 +162,10 @@ internal sealed class GpayOrderSync : IGpayOrderSync
         foreach (var order in candidates)
         {
             currentStatuses.TryGetValue(order.OrderId, out var currentOrderStatus);
-            if (!string.Equals(currentOrderStatus, "PRS", StringComparison.OrdinalIgnoreCase))
+            if (!IsReadyForPayment(currentOrderStatus))
             {
                 _logger.LogInformation(
-                    "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not PRS.",
+                    "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not Bank Hub-ready.",
                     order.OrderNumber,
                     currentOrderStatus ?? "<missing>");
 
@@ -172,12 +178,12 @@ internal sealed class GpayOrderSync : IGpayOrderSync
         candidates = eligibleCandidates;
 
         _logger.LogInformation(
-            "GPay PRS poll found {OrderCount} eligible order(s) across enabled banks.",
+                    "GPay Bank Hub-ready poll found {OrderCount} eligible order(s) across enabled banks.",
             candidates.Count);
 
         if (candidates.Count == 0)
         {
-            var prsOrderCount = await prsOrders.CountAsync(cancellationToken);
+            var bankHubReadyOrderCount = await bankHubReadyOrders.CountAsync(cancellationToken);
 
             var enabledBankOrderCount = await ordersFromEnabledBanks.CountAsync(cancellationToken);
 
@@ -186,8 +192,8 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             var orderWithAmountCount = await ordersWithAmount.CountAsync(cancellationToken);
 
             _logger.LogWarning(
-                "GPay PRS poll returned no eligible orders. ActivePRS={PrsCount}, EnabledBank={BankCount}, WithPayee={PayeeCount}, WithPositiveAmount={AmountCount}. EnabledBanks={EnabledBanks}.",
-                prsOrderCount,
+                "GPay Bank Hub-ready poll returned no eligible orders. ActiveBankHubReady={BankHubReadyCount}, EnabledBank={BankCount}, WithPayee={PayeeCount}, WithPositiveAmount={AmountCount}. EnabledBanks={EnabledBanks}.",
+                bankHubReadyOrderCount,
                 enabledBankOrderCount,
                 orderWithPayeeCount,
                 orderWithAmountCount,
@@ -217,6 +223,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                   && status.Name.ToUpper() != "ERROR"
                   && status.Name.ToUpper() != "COMPLETED"
                   && status.Name.ToUpper() != "RECONCILED"
+                  && status.Name.ToUpper() != "BANKHUB - PRS"
                   && status.Name.ToUpper() != "PRS"
             orderby order.OrderDate, order.OrderNumber
             select new
@@ -276,6 +283,17 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         return query.FirstOrDefaultAsync(cancellationToken);
     }
+
+    public Task<bool> IsPublicHolidayAsync(DateTime date, CancellationToken cancellationToken = default)
+    {
+        var dayStart = date.Date;
+        var nextDay = dayStart.AddDays(1);
+        return _dbContext.Set<GpayHolidayRow>().AsNoTracking()
+            .AnyAsync(holiday => holiday.Date >= dayStart && holiday.Date < nextDay, cancellationToken);
+    }
+
+    private static bool IsReadyForPayment(string? status) =>
+        string.Equals(status, "BankHub - PRS", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeBank(string bankName)
     {

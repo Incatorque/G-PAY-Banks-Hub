@@ -32,7 +32,7 @@ internal sealed class BankRouterService : IBankRouterService
         var service = ResolveInstantPaymentService(bank);
         var routedRequest = ApplyInternalOrderDefaults(bank, request) with
         {
-            PaymentRail = ResolvePaymentRail(bank)
+            PaymentRail = ResolvePaymentRail(bank, request.PaymentRail)
         };
 
         return service.PayAsync(routedRequest, correlationId, cancellationToken);
@@ -52,8 +52,19 @@ internal sealed class BankRouterService : IBankRouterService
     private IInstantPaymentService ResolveInstantPaymentService(BankCode bank) =>
         _capabilityResolver.GetInstantPayment(bank);
 
-    private static string ResolvePaymentRail(BankCode bank)
+    private static string ResolvePaymentRail(BankCode bank, string? requestedRail)
     {
+        if (bank == BankCode.Absa && !string.IsNullOrWhiteSpace(requestedRail))
+        {
+            var normalizedRail = requestedRail.Trim().ToUpperInvariant();
+            if (normalizedRail is "RPP" or "IIP" or "PAAF")
+            {
+                return normalizedRail;
+            }
+
+            throw new NotSupportedException($"Absa payment rail '{requestedRail}' is not supported.");
+        }
+
         return bank switch
         {
             BankCode.Absa => "RPP",

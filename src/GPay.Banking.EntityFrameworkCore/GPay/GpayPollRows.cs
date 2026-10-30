@@ -12,6 +12,7 @@ internal sealed class GpayOrderRow
     public Guid? FromAccountId { get; set; }
     public Guid? ToAccountId { get; set; }
     public string? ReferenceNumber { get; set; }
+    public string? ServiceType { get; set; }
     public Guid? UserId { get; set; }
     public Guid? EntityBankStatementId { get; set; }
 }
@@ -69,6 +70,12 @@ internal sealed class GpayBankRow
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public bool? Active { get; set; }
+}
+
+internal sealed class GpayHolidayRow
+{
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
 }
 
 internal sealed class GpayEntityRow

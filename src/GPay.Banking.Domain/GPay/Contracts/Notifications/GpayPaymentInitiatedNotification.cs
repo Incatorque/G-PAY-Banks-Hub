@@ -6,6 +6,10 @@ public sealed class GpayPaymentInitiatedNotification
 {
     public string Bank { get; init; } = string.Empty;
 
+    public string Route { get; init; } = "API";
+
+    public string Rail { get; init; } = string.Empty;
+
     public string OrderNumber { get; init; } = string.Empty;
 
     public decimal Amount { get; init; }
