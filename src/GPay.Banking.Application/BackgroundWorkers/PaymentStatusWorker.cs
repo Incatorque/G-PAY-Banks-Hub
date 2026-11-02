@@ -51,6 +51,11 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
             {
                 var bank = GPay.Banking.Helpers.BankCodeParser.Parse(order.Bank);
 
+                if (bank != BankCode.Absa) //Only ABSA for now.
+                {
+                    continue;
+                }
+
                 var result = await bankRouter.GetPaymentStatusAsync(
                     bank,
                     new PaymentStatusRequest
