@@ -218,14 +218,8 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 on order.FromAccountId equals (Guid?)payer.Id
             join bank in _dbContext.Set<GpayBankRow>().AsNoTracking()
                 on payer.BankId equals bank.Id
-            where order.OrderDate >= startOfToday
-                  && order.OrderDate < startOfTomorrow
-                  && status.Name.ToUpper() != "ERROR"
-                  && status.Name.ToUpper() != "COMPLETED"
-                  && status.Name.ToUpper() != "RECONCILED"
-                  && status.Name.ToUpper() != "BANKHUB - PRS"
-                  && status.Name.ToUpper() != "PRS"
-            orderby order.OrderDate, order.OrderNumber
+            where status.Name.ToUpper() == "SUBMITTEDTOQUEUE"
+            orderby order.OrderDate, order.OrderNumber 
             select new
             {
                 order.Id,
