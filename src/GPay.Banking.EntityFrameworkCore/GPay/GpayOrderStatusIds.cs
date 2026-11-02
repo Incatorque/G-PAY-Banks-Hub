@@ -19,9 +19,7 @@ internal static class GpayOrderStatusIds
 
     private static readonly Guid[] Open =
     [
-        BankHubPrs
-        
-        //, Fprs, SubmittedToQueue, PendingBankTransfer, BankTransferProcessing
+        BankHubPrs, SubmittedToQueue
     ];
 
     public static bool IsOpen(Guid statusId) => Open.Contains(statusId);
