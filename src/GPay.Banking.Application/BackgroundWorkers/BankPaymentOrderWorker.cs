@@ -1,5 +1,6 @@
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
+using GPay.Banking.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -66,7 +67,7 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 
                 var currentOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
 
-                if (!IsReadyForPayment(currentOrderStatus))
+                if (!BankHubOrderStatuses.IsReadyForPayment(currentOrderStatus))
                 {
                     logger.LogInformation(
                         "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not Bank Hub-ready.",
@@ -76,9 +77,10 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                     continue;
                 }
 
-                var paymentRail = string.Equals(order.Bank, BankCode.Absa.ToString(), StringComparison.OrdinalIgnoreCase)
-                    ? ResolveAbsaPaymentRail(order)
-                    : string.Empty;
+                var paymentRail = PaymentRailRouting.ForOrder(
+                    BankCodeParser.Parse(order.Bank),
+                    order.Amount,
+                    order.ServiceType);
 
                 var paymentRequest = new InitiatePaymentRequestDto
                 {
@@ -126,26 +128,6 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                     order.OrderNumber);
             }
         }
-    }
-
-    private static bool IsReadyForPayment(string? status) =>
-        string.Equals(status, "BankHub - PRS", StringComparison.OrdinalIgnoreCase);
-
-    private static string ResolveAbsaPaymentRail(GpayPaymentOrderCandidate order)
-    {
-        if (order.Amount <= 50000m)
-        {
-            return "RPP";
-        }
-
-        if (order.Amount > 250000m)
-        {
-            return "PAAF";
-        }
-
-        return string.Equals(order.ServiceType, "02", StringComparison.Ordinal)
-            ? "IIP"
-            : "PAAF";
     }
 
 }

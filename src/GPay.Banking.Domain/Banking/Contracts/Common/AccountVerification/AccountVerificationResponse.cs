@@ -1,8 +1,6 @@
 namespace GPay.Banking.Domain.Dtos;
 
 
-using GPay.Banking;
-
 /// <summary>
 /// Bank-agnostic GPay account verification (AVS) response.
 /// </summary>

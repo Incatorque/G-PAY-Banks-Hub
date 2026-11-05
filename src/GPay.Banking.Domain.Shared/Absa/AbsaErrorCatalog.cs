@@ -22,28 +22,12 @@ public static class AbsaErrorCatalog
         var normalized = Normalize(code);
         if (normalized is null)
         {
-            return new AbsaErrorInfo
-            {
-                Code = "UNKNOWN",
-                Message = string.IsNullOrWhiteSpace(bankMessage) ? "Absa operation failed." : bankMessage.Trim(),
-                Category = "Unknown",
-                Severity = "Error",
-                Known = false,
-                BankMessage = bankMessage
-            };
+            return Unknown("UNKNOWN", "Absa operation failed.", bankMessage);
         }
 
         if (!Known.TryGetValue(normalized, out var definition))
         {
-            return new AbsaErrorInfo
-            {
-                Code = normalized,
-                Message = string.IsNullOrWhiteSpace(bankMessage) ? $"Uncatalogued Absa error {normalized}." : bankMessage.Trim(),
-                Category = "Unknown",
-                Severity = "Error",
-                Known = false,
-                BankMessage = bankMessage
-            };
+            return Unknown(normalized, $"Uncatalogued Absa error {normalized}.", bankMessage);
         }
 
         if (string.IsNullOrWhiteSpace(bankMessage))
@@ -77,6 +61,16 @@ public static class AbsaErrorCatalog
 
         return value.ToUpperInvariant();
     }
+
+    private static AbsaErrorInfo Unknown(string code, string fallbackMessage, string? bankMessage) =>
+        new()
+        {
+            Code = code,
+            Message = string.IsNullOrWhiteSpace(bankMessage) ? fallbackMessage : bankMessage.Trim(),
+            Category = "Unknown",
+            Severity = "Error",
+            BankMessage = bankMessage
+        };
 
     private static Dictionary<string, AbsaErrorInfo> Build()
     {

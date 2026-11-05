@@ -10,41 +10,27 @@ using Volo.Abp.Domain.Repositories;
 namespace GPay.Banking;
 
 /// <summary>
-/// Instant payment AppService — PayShap / RTC initiate and status enquiry.
+/// Bank-routed instant payment initiation and status enquiry AppService.
 /// </summary>
 /// <remarks>
 /// Routes under <c>/api/app/instant-payment/*</c>.
 /// </remarks>
 [Authorize]
-public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppService
+public class InstantPaymentAppService(
+    IInstantPaymentInitiator initiator,
+    IBankRouterService bankRouter,
+    IRepository<BankHubApiCall, Guid> apiCallRepository,
+    IGpayOrderSync gpayOrderSync,
+    IGpayPaymentNotificationQueue notifications)
+    : ApplicationService, IInstantPaymentAppService
 {
-    private readonly IInstantPaymentInitiator _initiator;
-    private readonly IBankRouterService _bankRouter;
-    private readonly IRepository<BankHubApiCall, Guid> _apiCallRepository;
-    private readonly IGpayOrderSync _gpayOrderSync;
-    private readonly IGpayPaymentNotificationQueue _notifications;
-
-    public InstantPaymentAppService(
-        IInstantPaymentInitiator initiator,
-        IBankRouterService bankRouter,
-        IRepository<BankHubApiCall, Guid> apiCallRepository,
-        IGpayOrderSync gpayOrderSync,
-        IGpayPaymentNotificationQueue notifications)
-    {
-        _initiator = initiator;
-        _bankRouter = bankRouter;
-        _apiCallRepository = apiCallRepository;
-        _gpayOrderSync = gpayOrderSync;
-        _notifications = notifications;
-    }
-
     /// <summary>
     /// Submits an instant payment to the bank named in the request body.
     /// </summary>
     /// <param name="input">Debit/credit accounts, amount, reference, rail, and target <c>Bank</c>.</param>
     /// <returns>Submission result with status, bank references, and <c>correlationId</c>.</returns>
     /// <remarks>Amount must be &gt; 0.</remarks>
-    public Task<PaymentResultDto> InitiateAsync(InitiatePaymentRequestDto input) => _initiator.InitiateAsync(input);
+    public Task<PaymentResultDto> InitiateAsync(InitiatePaymentRequestDto input) => initiator.InitiateAsync(input);
 
     /// <summary>
     /// Queries live payment status from the bank and updates the linked GPay order when found.
@@ -63,14 +49,14 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         var correlationId = Guid.NewGuid().ToString("N");
         var bankCode = bank.ToString();
         var paymentCall = await BankPaymentCallLookup.FindAsync(
-            _apiCallRepository,
+            apiCallRepository,
             bankCode,
             input.TransactionReference,
             input.ApiReference);
         ApiResult<PaymentStatusResponse> result;
         try
         {
-            result = await _bankRouter.GetPaymentStatusAsync(
+            result = await bankRouter.GetPaymentStatusAsync(
                 bank,
                 new PaymentStatusRequest
                 {
@@ -96,36 +82,42 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
                 result.Error?.Code ?? "PAYMENT_STATUS_ERROR",
                 result.Error?.Message ?? "No status data returned.");
         }
-        else if (PaymentStatusClassifier.IsFailure(result.Data.RawStatusLabel ?? result.Data.Status))
+        else
         {
-            await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
+            var status = result.Data;
+            var normalizedStatus = PaymentStatusClassifier.Normalize(status);
+
+            if (PaymentStatusClassifier.IsFailure(normalizedStatus))
             {
-                Bank = bankCode,
-                OrderNumber = paymentCall?.GpayOrderId?.ToString("D") ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
-                Reference = result.Data.Reference ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
-                Amount = result.Data.Amount ?? 0m,
-                Currency = result.Data.Currency ?? string.Empty,
-                Status = result.Data.RawStatusLabel ?? result.Data.Status,
-                IsStatusCheck = true,
-                IsError = true,
-                ErrorCode = result.Data.ErrorCode ?? result.Data.RawStatusLabel ?? result.Data.Status,
-                ErrorMessage = result.Data.ResultDescription,
-                StatusDescription = result.Data.ResultDescription
-            });
-        }
-        if (result.Success && result.Data is not null && paymentCall?.GpayOrderId is Guid gpayOrderId)
-        {
-            await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
+                await notifications.EnqueueAsync(PaymentNotificationFactory.StatusCheckResult(
+                    bankCode,
+                    paymentCall?.GpayOrderId?.ToString("D") ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
+                    status.Amount ?? 0m,
+                    status.Currency ?? string.Empty,
+                    null,
+                    null,
+                    status.Reference ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
+                    normalizedStatus,
+                    isError: true,
+                    status.ErrorCode ?? normalizedStatus,
+                    status.ResultDescription,
+                    status.ResultDescription));
+            }
+
+            if (paymentCall?.GpayOrderId is Guid gpayOrderId)
             {
-                GpayOrderId = gpayOrderId,
-                Reference = dto.Reference,
-                TransactionReference = dto.TransactionReference,
-                SourceStatementRef = dto.SourceStatementRef,
-                TargetStatementRef = dto.TargetStatementRef,
-                HubStatus = dto.Status,
-                Note = dto.ResultDescription,
-                Amount = dto.Amount ?? 0m
-            });
+                await gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
+                {
+                    GpayOrderId = gpayOrderId,
+                    Reference = dto.Reference,
+                    TransactionReference = dto.TransactionReference,
+                    SourceStatementRef = dto.SourceStatementRef,
+                    TargetStatementRef = dto.TargetStatementRef,
+                    HubStatus = dto.Status,
+                    Note = dto.ResultDescription,
+                    Amount = dto.Amount ?? 0m
+                });
+            }
         }
 
         return dto;
@@ -137,17 +129,15 @@ public class InstantPaymentAppService : ApplicationService, IInstantPaymentAppSe
         string bank,
         string errorCode,
         string errorMessage) =>
-        _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
-        {
-            Bank = bank,
-            OrderNumber = orderId?.ToString("D") ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
-            Reference = input.TransactionReference ?? input.ApiReference ?? string.Empty,
-            Status = "Error",
-            IsStatusCheck = true,
-            IsError = true,
-            ErrorCode = errorCode,
-            ErrorMessage = errorMessage,
-            StatusDescription = errorMessage
-        });
+        notifications.EnqueueAsync(PaymentNotificationFactory.StatusCheckError(
+            bank,
+            orderId?.ToString("D") ?? input.TransactionReference ?? input.ApiReference ?? string.Empty,
+            input.TransactionReference ?? input.ApiReference ?? string.Empty,
+            0m,
+            string.Empty,
+            null,
+            null,
+            errorCode,
+            errorMessage));
 
 }

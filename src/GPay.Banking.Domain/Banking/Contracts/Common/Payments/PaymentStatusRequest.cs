@@ -1,8 +1,6 @@
 namespace GPay.Banking.Domain.Dtos;
 
 
-using GPay.Banking;
-
 /// <summary>
 /// Request to query instant payment status by Absa transaction or API reference.
 /// </summary>

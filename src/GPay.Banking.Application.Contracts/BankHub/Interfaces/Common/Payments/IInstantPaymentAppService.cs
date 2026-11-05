@@ -3,7 +3,7 @@ using Volo.Abp.Application.Services;
 namespace GPay.Banking.BankHub;
 
 /// <summary>
-/// Instant payment API — initiate PayShap/RTC payments and query bank status.
+/// Bank-routed instant payment API for initiation and status queries.
 /// </summary>
 /// <remarks>
 /// <para>

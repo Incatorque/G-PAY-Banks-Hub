@@ -4,15 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace GPay.Banking.Services;
 
-internal sealed class BankCapabilityResolver : IBankCapabilityResolver
+internal sealed class BankCapabilityResolver(IServiceProvider serviceProvider) : IBankCapabilityResolver
 {
-    private readonly IServiceProvider _serviceProvider;
-
-    public BankCapabilityResolver(IServiceProvider serviceProvider)
-    {
-        _serviceProvider = serviceProvider;
-    }
-
     public IAccountVerificationService GetAccountVerification(BankCode bank) => Resolve<IAccountVerificationService>(bank);
 
     public IInstantPaymentService GetInstantPayment(BankCode bank) => Resolve<IInstantPaymentService>(bank);
@@ -27,7 +20,7 @@ internal sealed class BankCapabilityResolver : IBankCapabilityResolver
     private T Resolve<T>(BankCode bank) where T : notnull
     {
         var key = bank.ToString();
-        var service = _serviceProvider.GetKeyedService<T>(key);
+        var service = serviceProvider.GetKeyedService<T>(key);
 
         return service ?? throw new NotSupportedException(
             $"Bank capability '{typeof(T).Name}' is not registered for '{key}'.");

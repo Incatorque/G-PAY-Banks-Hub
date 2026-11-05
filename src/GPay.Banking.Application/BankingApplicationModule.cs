@@ -23,11 +23,8 @@ public class BankingApplicationModule : AbpModule
 
         Configure<AvsBatchOptions>(configuration.GetSection(AvsBatchOptions.SectionName));
 
-        Configure<BankCallbackOptions>(configuration.GetSection(BankCallbackOptions.SectionName));
-
         Configure<PaymentStatusPollOptions>(configuration.GetSection(PaymentStatusPollOptions.SectionName));
 
-        Configure<BankPaymentIntakeOptions>(configuration.GetSection(BankPaymentIntakeOptions.SectionName));
         Configure<SouthAfricanHolidayOptions>(configuration.GetSection(SouthAfricanHolidayOptions.SectionName));
         context.Services.AddMemoryCache();
         context.Services.AddHttpClient<IAbsaPaymentSchedule, AbsaPaymentSchedule>(client =>

@@ -14,7 +14,7 @@ internal static class BankingSwaggerExtensions
     public static void AddBankingSwagger(this ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
-        var requireGpayAuth = configuration.GetValue("AuthServer:RequireGpayAuth", true);
+        var requireGpayAuth = BankingHttpApiHostModule.IsGpayAuthRequired(configuration);
 
         context.Services.AddAbpSwaggerGen(options =>
         {
@@ -74,11 +74,10 @@ internal static class BankingSwaggerExtensions
         {
             "GPay.Banking.Application.Contracts.xml",
             "GPay.Banking.Application.xml",
-            "GPay.Banking.HttpApi.Host.xml",
             $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"
         };
 
-        foreach (var name in xmlNames.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var name in xmlNames)
         {
             var path = Path.Combine(baseDir, name);
             if (File.Exists(path))

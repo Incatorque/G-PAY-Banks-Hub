@@ -16,22 +16,11 @@ internal static class BankApiCallAuditMetadata
 /// <summary>
 /// Captures outbound bank HTTP traffic and writes it through the shared audit service.
 /// </summary>
-internal sealed class BankApiCallAuditHandler : DelegatingHandler
+internal sealed class BankApiCallAuditHandler(
+    IServiceScopeFactory scopeFactory,
+    ILogger<BankApiCallAuditHandler> logger,
+    string defaultBankCode) : DelegatingHandler
 {
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<BankApiCallAuditHandler> _logger;
-    private readonly string _defaultBankCode;
-
-    public BankApiCallAuditHandler(
-        IServiceScopeFactory scopeFactory,
-        ILogger<BankApiCallAuditHandler> logger,
-        string defaultBankCode)
-    {
-        _scopeFactory = scopeFactory;
-        _logger = logger;
-        _defaultBankCode = defaultBankCode;
-    }
-
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -59,15 +48,18 @@ internal sealed class BankApiCallAuditHandler : DelegatingHandler
 
             int? statusCode = response is null ? null : (int)response.StatusCode;
             var success = response?.IsSuccessStatusCode == true;
-            var bankCode = _defaultBankCode;
+            using var requestDocument = JsonElementReader.ParseOrNull(requestBody);
+            using var responseDocument = JsonElementReader.ParseOrNull(responseBody);
+            var requestJson = requestDocument?.RootElement ?? default;
+            var responseJson = responseDocument?.RootElement ?? default;
             var orderId = request.Options.TryGetValue(BankApiCallAuditMetadata.GpayOrderId, out var gpayOrderId)
                 ? gpayOrderId
-                : FindGuid(requestBody, "GpayOrderId");
+                : FindGuid(requestJson, "GpayOrderId");
             var correlationId = GetHeader(request, "X-Correlation-ID")
-                ?? FindString(requestBody, "CorrelationId")
-                ?? FindString(responseBody, "CorrelationId");
+                ?? JsonElementReader.FindString(requestJson, "CorrelationId")
+                ?? JsonElementReader.FindString(responseJson, "CorrelationId");
             var errorCode = !success
-                ? FindString(responseBody, "ErrorCode")
+                ? JsonElementReader.FindString(responseJson, "ErrorCode")
                     ?? statusCode?.ToString()
                     ?? sendException?.GetType().Name
                 : null;
@@ -75,8 +67,7 @@ internal sealed class BankApiCallAuditHandler : DelegatingHandler
             await RecordSafelyAsync(new BankApiCallAuditEntry
             {
                 GpayOrderId = orderId,
-                BankCode = bankCode,
-                Direction = "Outbound",
+                BankCode = defaultBankCode,
                 Operation = GetOperation(request.RequestUri),
                 HttpMethod = request.Method.Method,
                 Path = request.RequestUri?.AbsolutePath,
@@ -95,13 +86,13 @@ internal sealed class BankApiCallAuditHandler : DelegatingHandler
     {
         try
         {
-            await using var scope = _scopeFactory.CreateAsyncScope();
+            await using var scope = scopeFactory.CreateAsyncScope();
             var auditor = scope.ServiceProvider.GetRequiredService<IBankApiCallAuditor>();
             await auditor.RecordAsync(entry, CancellationToken.None);
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 exception,
                 "Could not write automatic bank API audit for {BankCode} {Operation}.",
                 entry.BankCode,
@@ -122,7 +113,7 @@ internal sealed class BankApiCallAuditHandler : DelegatingHandler
         }
         catch (Exception exception)
         {
-            _logger.LogDebug(exception, "Could not read bank HTTP {ContentType} for audit.", contentType);
+            logger.LogDebug(exception, "Could not read bank HTTP {ContentType} for audit.", contentType);
             return null;
         }
     }
@@ -145,28 +136,10 @@ internal sealed class BankApiCallAuditHandler : DelegatingHandler
             : null;
     }
 
-    private static Guid? FindGuid(string? json, string propertyName)
+    private static Guid? FindGuid(JsonElement json, string propertyName)
     {
-        var value = FindString(json, propertyName);
+        var value = JsonElementReader.FindString(json, propertyName);
         return Guid.TryParse(value, out var result) ? result : null;
-    }
-
-    private static string? FindString(string? json, string propertyName)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            return JsonElementReader.FindString(document.RootElement, propertyName);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 
 }

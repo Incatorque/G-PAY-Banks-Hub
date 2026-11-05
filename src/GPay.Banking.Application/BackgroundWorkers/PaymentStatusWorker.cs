@@ -49,7 +49,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
         {
             try
             {
-                var bank = GPay.Banking.Helpers.BankCodeParser.Parse(order.Bank);
+                var bank = BankCodeParser.Parse(order.Bank);
 
                 if (bank != BankCode.Absa) //Only ABSA for now.
                 {
@@ -67,7 +67,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 
                 if (!result.Success || result.Data is null)
                 {
-                    await notifications.EnqueueAsync(CreateErrorNotification(
+                    await notifications.EnqueueAsync(PaymentNotificationFactory.StatusCheckError(
                         order,
                         result.Error?.Code ?? "PAYMENT_STATUS_ERROR",
                         result.Error?.Message ?? "No status data returned."));
@@ -80,7 +80,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
                 }
 
                 var status = result.Data;
-                var normalizedStatus = status.RawStatusLabel ?? status.Status;
+                var normalizedStatus = PaymentStatusClassifier.Normalize(status);
                 var previousOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
 
                 await gpay.ApplyPaymentAsync(new GpayPaymentSyncRequest
@@ -97,29 +97,26 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 
                 var updatedOrderStatus = await gpay.GetOrderStatusAsync(order.OrderId);
                 var orderStatusChanged = !string.Equals(previousOrderStatus, updatedOrderStatus, StringComparison.OrdinalIgnoreCase);
-                var isSuccess = IsSuccessfulStatus(normalizedStatus);
+                var isSuccess = PaymentStatusClassifier.IsSuccess(normalizedStatus);
                 var isFailure = PaymentStatusClassifier.IsFailure(normalizedStatus);
                 if (isFailure || (orderStatusChanged && isSuccess))
                 {
-                    await notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
-                    {
-                        Bank = order.Bank,
-                        OrderNumber = order.OrderNumber,
-                        Amount = status.Amount ?? order.Amount,
-                        Currency = status.Currency ?? order.Currency,
-                        FromAccountNumber = order.FromAccountNumber,
-                        ToAccountNumber = order.ToAccountNumber,
-                        Reference = status.Reference ?? order.Reference,
-                        Status = normalizedStatus,
-                        IsStatusCheck = true,
-                        IsError = isFailure,
-                        ErrorCode = status.ErrorCode ?? normalizedStatus,
-                        ErrorMessage = status.ResultDescription,
-                        StatusDescription = status.ResultDescription ?? (isFailure
+                    await notifications.EnqueueAsync(PaymentNotificationFactory.StatusCheckResult(
+                        order.Bank,
+                        order.OrderNumber,
+                        status.Amount ?? order.Amount,
+                        status.Currency ?? order.Currency,
+                        order.FromAccountNumber,
+                        order.ToAccountNumber,
+                        status.Reference ?? order.Reference,
+                        normalizedStatus,
+                        isFailure,
+                        status.ErrorCode ?? normalizedStatus,
+                        status.ResultDescription,
+                        status.ResultDescription ?? (isFailure
                             ? "The bank reported that payment settlement failed."
                             : "Payment successfully processed and settled."),
-                        TransactionReference = status.TransactionReference ?? status.TransactionId
-                    });
+                        status.TransactionReference ?? status.TransactionId));
                 }
 
                 logger.LogInformation(
@@ -130,7 +127,8 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
             }
             catch (NotSupportedException ex)
             {
-                await notifications.EnqueueAsync(CreateErrorNotification(order, "PAYMENT_STATUS_UNSUPPORTED", ex.Message));
+                await notifications.EnqueueAsync(PaymentNotificationFactory.StatusCheckError(
+                    order, "PAYMENT_STATUS_UNSUPPORTED", ex.Message));
                 logger.LogWarning(
                     ex,
                     "Skipping GPay order {OrderNumber}; no payment status service is registered for bank {Bank}.",
@@ -139,7 +137,8 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
             }
             catch (Exception ex)
             {
-                await notifications.EnqueueAsync(CreateErrorNotification(order, "PAYMENT_STATUS_EXCEPTION", ex.Message));
+                await notifications.EnqueueAsync(PaymentNotificationFactory.StatusCheckError(
+                    order, "PAYMENT_STATUS_EXCEPTION", ex.Message));
                 logger.LogError(
                     ex,
                     "Status check at {Bank} failed for GPay order {OrderNumber}.",
@@ -150,29 +149,5 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
 
         await uow.CompleteAsync();
     }
-
-    private static GpayPaymentInitiatedNotification CreateErrorNotification(
-        GpayPaymentStatusCandidate order,
-        string errorCode,
-        string errorMessage) => new()
-    {
-        Bank = order.Bank,
-        OrderNumber = order.OrderNumber,
-        Amount = order.Amount,
-        Currency = order.Currency,
-        FromAccountNumber = order.FromAccountNumber,
-        ToAccountNumber = order.ToAccountNumber,
-        Reference = order.Reference,
-        Status = "Error",
-        IsStatusCheck = true,
-        IsError = true,
-        ErrorCode = errorCode,
-        ErrorMessage = errorMessage,
-        StatusDescription = errorMessage
-    };
-
-    private static bool IsSuccessfulStatus(string? status) =>
-        string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(status, "Accepted", StringComparison.OrdinalIgnoreCase);
 
 }

@@ -14,15 +14,15 @@ public sealed class AbsaPaymentCorrelationConverter : JsonConverter<AbsaPaymentC
     public override AbsaPaymentCorrelation Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using var doc = JsonDocument.ParseValue(ref reader);
-        var root = doc.RootElement;
-
-        return new AbsaPaymentCorrelation
-        {
-            Type = JsonElementReader.ReadFirstInt(root, "Correlation", "Type"),
-            Value = JsonElementReader.ReadString(root, "CorrelationId", "Value"),
-            Id = JsonElementReader.ReadString(root, "Id")
-        };
+        return ReadElement(doc.RootElement);
     }
+
+    internal static AbsaPaymentCorrelation ReadElement(JsonElement root) => new()
+    {
+        Type = JsonElementReader.ReadFirstInt(root, "Correlation", "Type"),
+        Value = JsonElementReader.ReadString(root, "CorrelationId", "Value"),
+        Id = JsonElementReader.ReadString(root, "Id")
+    };
 
     /// <inheritdoc />
     public override void Write(Utf8JsonWriter writer, AbsaPaymentCorrelation value, JsonSerializerOptions options)

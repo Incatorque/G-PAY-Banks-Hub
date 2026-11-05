@@ -10,10 +10,6 @@ namespace GPay.Banking.EntityFrameworkCore;
 [ConnectionStringName("Default")]
 public class BankingDbContext : AbpDbContext<BankingDbContext>
 {
-    public DbSet<BankHubAvsBatch> BankHubAvsBatches { get; set; } = null!;
-    public DbSet<BankHubAvsRecord> BankHubAvsRecords { get; set; } = null!;
-    public DbSet<BankHubApiCall> BankHubApiCalls { get; set; } = null!;
-
     public BankingDbContext(DbContextOptions<BankingDbContext> options)
         : base(options)
     {
@@ -70,14 +66,9 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("Order", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkOrderID");
-            b.Property(x => x.OrderNumber).HasColumnName("OrderNumber");
-            b.Property(x => x.OrderDate).HasColumnName("OrderDate");
             b.Property(x => x.StatusId).HasColumnName("FkOrderStatusID");
-            b.Property(x => x.Active).HasColumnName("Active");
             b.Property(x => x.FromAccountId).HasColumnName("FkFromAccountID");
             b.Property(x => x.ToAccountId).HasColumnName("FkToAccountID");
-            b.Property(x => x.ReferenceNumber).HasColumnName("ReferenceNumber");
-            b.Property(x => x.ServiceType).HasColumnName("ServiceType");
             b.Property(x => x.UserId).HasColumnName("FkUserID");
             b.Property(x => x.EntityBankStatementId).HasColumnName("FkEntityBankStatementID");
         });
@@ -87,19 +78,8 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("EntityBankStatement", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkEntityBankStatementID");
-            b.Property(x => x.Description).HasColumnName("Description");
-            b.Property(x => x.ReferenceNumber).HasColumnName("ReferenceNumber");
-            b.Property(x => x.TransactionDate).HasColumnName("TransactionDate");
-            b.Property(x => x.Amount).HasColumnName("Amount");
-            b.Property(x => x.SyncDate).HasColumnName("SyncDate");
-            b.Property(x => x.Reconciled).HasColumnName("Reconciled");
             b.Property(x => x.EntityId).HasColumnName("FkEntityID");
             b.Property(x => x.AccountId).HasColumnName("FkAccountID");
-            b.Property(x => x.IsIntra).HasColumnName("IsIntra");
-            b.Property(x => x.IsProcessed).HasColumnName("IsProcessed");
-            b.Property(x => x.TransactionCodeId).HasColumnName("TransactionCodeId");
-            b.Property(x => x.SupplierBankReference).HasColumnName("SupplierBankReference");
-            b.Property(x => x.Active).HasColumnName("Active");
         });
 
         builder.Entity<GpayEntityBankStatementLogRow>(b =>
@@ -108,10 +88,7 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkEntityBankStatementLog");
             b.Property(x => x.EntityBankStatementId).HasColumnName("FKEntityBankStatementId");
-            b.Property(x => x.UpdatedDate).HasColumnName("UpdatedDate");
             b.Property(x => x.UserId).HasColumnName("FKUserId");
-            b.Property(x => x.UpdateDescription).HasColumnName("UpdateDescription");
-            b.Property(x => x.IsCopied).HasColumnName("IsCopied");
         });
 
         builder.Entity<GpayTransactionCodeRow>(b =>
@@ -119,8 +96,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("TransactionCode", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("ID");
-            b.Property(x => x.Name).HasColumnName("Name");
-            b.Property(x => x.Active).HasColumnName("Active");
         });
 
         builder.Entity<GpayOrderHistoryRow>(b =>
@@ -131,8 +106,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.Property(x => x.OrderId).HasColumnName("FkOrderID");
             b.Property(x => x.StatusId).HasColumnName("FkOrderStatusID");
             b.Property(x => x.HistoryCategoryId).HasColumnName("FkHistoryCategoryID");
-            b.Property(x => x.Date).HasColumnName("Date");
-            b.Property(x => x.Note).HasColumnName("Note");
             b.Property(x => x.UserId).HasColumnName("FkUserID");
         });
 
@@ -141,7 +114,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("OrderStatus", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkOrderStatusID");
-            b.Property(x => x.Name).HasColumnName("Name");
         });
 
         builder.Entity<GpayOrderItemRow>(b =>
@@ -150,8 +122,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkOrderItemID");
             b.Property(x => x.OrderId).HasColumnName("FkOrderID");
-            b.Property(x => x.Price).HasColumnName("Price");
-            b.Property(x => x.Quantity).HasColumnName("Quantity");
         });
 
         builder.Entity<GpayAccountRow>(b =>
@@ -161,10 +131,7 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.Property(x => x.Id).HasColumnName("PkAccountID");
             b.Property(x => x.BankId).HasColumnName("FkBankID");
             b.Property(x => x.CountryCurrencyId).HasColumnName("CountryCurrencyID");
-            b.Property(x => x.Active).HasColumnName("Active");
             b.Property(x => x.EntityId).HasColumnName("FkEntityID");
-            b.Property(x => x.AccountNumber).HasColumnName("AccountNumber");
-            b.Property(x => x.BranchCode).HasColumnName("BranchCode");
         });
 
         builder.Entity<GpayCountryCurrencyRow>(b =>
@@ -188,8 +155,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("Bank", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkBankID");
-            b.Property(x => x.Name).HasColumnName("Name");
-            b.Property(x => x.Active).HasColumnName("Active");
         });
 
         builder.Entity<GpayHolidayRow>(b =>
@@ -197,7 +162,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("Holiday", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("ID");
-            b.Property(x => x.Date).HasColumnName("Date");
         });
 
         builder.Entity<GpayEntityRow>(b =>
@@ -205,7 +169,6 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.ToTable("Entity", "dbo");
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("PkEntityID");
-            b.Property(x => x.Name).HasColumnName("Name");
         });
     }
 }

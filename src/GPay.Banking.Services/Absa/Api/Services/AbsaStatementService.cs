@@ -12,25 +12,15 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// does not define an account statement or transaction-history operation. Payment status
 /// is exposed on the instant-payment status API (<c>api/payment/Status</c>).
 /// </remarks>
-internal sealed class AbsaStatementService : IStatementService
+internal sealed class AbsaStatementService(ILogger<AbsaStatementService> logger) : IStatementService
 {
-    private readonly ILogger<AbsaStatementService> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AbsaStatementService"/> class.
-    /// </summary>
-    public AbsaStatementService(ILogger<AbsaStatementService> logger)
-    {
-        _logger = logger;
-    }
-
     /// <inheritdoc />
     public Task<ApiResult<StatementResponse>> GetStatementAsync(
         StatementRequest request,
         string correlationId,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
+        logger.LogInformation(
             "Absa statement not supported by CAPI Account={Account} CorrelationId={CorrelationId}",
             request.AccountNumber,
             correlationId);

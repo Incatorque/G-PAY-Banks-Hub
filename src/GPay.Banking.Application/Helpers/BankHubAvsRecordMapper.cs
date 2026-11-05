@@ -27,10 +27,34 @@ internal static class BankHubAvsRecordMapper
         record.AcceptsCredit = response.AcceptsCredit;
         record.AllowsDebit = response.AllowsDebit;
         record.AcceptsDebit = response.AcceptsDebit;
+        record.SuccessRate = CalculateSuccessRate(response);
         record.MatchingCriteriaJson = response.MatchingCriteria is null
             ? null
             : JsonSerializer.Serialize(response.MatchingCriteria);
-        record.Status = response.IsVerified ? "Verified" : "NotVerified";
+        record.Status = response.IsVerified ? AvsStatuses.Verified : AvsStatuses.NotVerified;
         record.ErrorMessage = null;
+    }
+
+    public static decimal CalculateSuccessRate(AccountVerificationResponse data)
+    {
+        static bool? Flag(string? value) => value switch
+        {
+            "Y" or "Yes" => true,
+            "N" or "No" => false,
+            _ => null
+        };
+
+        var checks = new bool?[]
+        {
+            data.AccountFound,
+            data.AccountOpen,
+            Flag(data.IdentityMatch),
+            Flag(data.NameMatch),
+            Flag(data.InitialsMatch)
+        };
+        var known = checks.Count(check => check.HasValue);
+        return known == 0
+            ? data.IsVerified ? 100m : 0m
+            : Math.Round(100m * checks.Count(check => check == true) / known, 1);
     }
 }

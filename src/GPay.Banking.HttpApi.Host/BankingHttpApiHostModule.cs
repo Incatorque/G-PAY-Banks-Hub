@@ -31,10 +31,15 @@ namespace GPay.Banking;
 )]
 public class BankingHttpApiHostModule : AbpModule
 {
+    internal const string RequireGpayAuthConfigurationKey = "AuthServer:RequireGpayAuth";
+
+    internal static bool IsGpayAuthRequired(IConfiguration configuration) =>
+        configuration.GetValue(RequireGpayAuthConfigurationKey, true);
+
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
-        var requireGpayAuth = configuration.GetValue("AuthServer:RequireGpayAuth", true);
+        var requireGpayAuth = IsGpayAuthRequired(configuration);
 
         context.Services.Configure<ForwardedHeadersOptions>(options =>
         {
@@ -52,19 +57,13 @@ public class BankingHttpApiHostModule : AbpModule
                     options.RequireHttpsMetadata = configuration.GetValue("AuthServer:RequireHttpsMetadata", true);
                     options.Audience = configuration["AuthServer:Audience"] ?? "GPay";
                 });
-
-            context.Services.AddAuthorization();
         }
         else
         {
-            context.Services.AddAuthorization(options =>
-            {
-                options.DefaultPolicy = new AuthorizationPolicyBuilder()
-                    .RequireAssertion(_ => true)
-                    .Build();
-            });
             context.Services.AddSingleton<IAuthorizationHandler, AllowWhenGpayAuthDisabledHandler>();
         }
+
+        context.Services.AddAuthorization();
 
         Configure<AbpAspNetCoreMvcOptions>(options =>
         {
@@ -96,7 +95,7 @@ public class BankingHttpApiHostModule : AbpModule
     {
         var app = context.GetApplicationBuilder();
         var env = context.GetEnvironment();
-        var requireGpayAuth = context.GetConfiguration().GetValue("AuthServer:RequireGpayAuth", true);
+        var requireGpayAuth = IsGpayAuthRequired(context.GetConfiguration());
 
         app.UseForwardedHeaders();
 

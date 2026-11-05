@@ -8,6 +8,7 @@ internal static class GpayOrderStatusIds
     public static readonly Guid BankHubPrs = new("a32560ca-2245-4a8b-871d-ea59ef5c3e37");
     public static readonly Guid Fprs = new("95F9D56C-0F2B-432B-98D3-BD753D8C4023");
     public static readonly Guid SubmittedToQueue = new("E93C9166-A328-4C27-9ABB-41187ACD60D8");
+    public static readonly Guid BankHubSubmittedToQueue = new("f2495973-3583-439a-ae20-d41dd07f58cf");
     public static readonly Guid PendingBankTransfer = new("CA2D245E-F1E4-48A1-89D3-33ABFCAA19D2");
     public static readonly Guid BankTransferProcessing = new("D79902A3-9A54-48EC-8A7D-3F7DA7DA7DE4");
     public static readonly Guid Completed = new("4AB48EE4-6A7C-4027-BEAA-D5737FA5344D");
@@ -19,7 +20,7 @@ internal static class GpayOrderStatusIds
 
     private static readonly Guid[] Open =
     [
-        BankHubPrs, SubmittedToQueue
+        BankHubPrs, BankHubSubmittedToQueue
     ];
 
     public static bool IsOpen(Guid statusId) => Open.Contains(statusId);
@@ -32,7 +33,7 @@ internal static class GpayOrderStatusIds
     public static Guid? FromHubStatus(string? hubStatus) =>
         hubStatus?.Trim().ToUpperInvariant() switch
         {
-            "SUBMITTED" or "QUEUED" => SubmittedToQueue,
+            "SUBMITTED" or "QUEUED" => BankHubSubmittedToQueue,
             "PENDING" or "SAVED" or "PROCESSING" => BankTransferProcessing,
             "COMPLETED" or "ACCEPTED" => Completed,
             "FAILED" or "ERROR" or "DUPLICATE" or "REJECTED" => Error,

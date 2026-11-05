@@ -15,15 +15,9 @@ namespace GPay.Banking;
 /// Route: <c>POST /api/app/transaction-history/get</c>.
 /// </remarks>
 [Authorize]
-public class TransactionHistoryAppService : ApplicationService, ITransactionHistoryAppService
+public class TransactionHistoryAppService(IBankCapabilityResolver resolver)
+    : ApplicationService, ITransactionHistoryAppService
 {
-    private readonly IBankCapabilityResolver _resolver;
-
-    public TransactionHistoryAppService(IBankCapabilityResolver resolver)
-    {
-        _resolver = resolver;
-    }
-
     /// <summary>
     /// Retrieves transaction history for an account over an inclusive date range.
     /// </summary>
@@ -48,7 +42,7 @@ public class TransactionHistoryAppService : ApplicationService, ITransactionHist
 
         var bank = BankCodeParser.Parse(input.Bank);
         var correlationId = Guid.NewGuid().ToString("N");
-        var service = _resolver.GetStatement(bank);
+        var service = resolver.GetStatement(bank);
 
         var result = await service.GetStatementAsync(
             new StatementRequest
@@ -73,7 +67,6 @@ public class TransactionHistoryAppService : ApplicationService, ITransactionHist
         {
             return new TransactionHistoryResultDto
             {
-                Success = false,
                 CorrelationId = correlationId,
                 FromDate = fromDate,
                 ToDate = toDate,

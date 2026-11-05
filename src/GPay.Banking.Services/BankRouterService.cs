@@ -7,21 +7,13 @@ namespace GPay.Banking.Services;
 /// <summary>
 /// Selects the bank-specific payment adapter and forwards normalized payment requests.
 /// </summary>
-internal sealed class BankRouterService : IBankRouterService
+internal sealed class BankRouterService(
+    IBankCapabilityResolver capabilityResolver,
+    IOptions<BankPaymentIntakeOptions> intakeOptions,
+    IOptions<AbsaCapiOptions> absaOptions) : IBankRouterService
 {
-    private readonly IBankCapabilityResolver _capabilityResolver;
-    private readonly BankPaymentIntakeOptions _intakeOptions;
-    private readonly AbsaCapiOptions _absaOptions;
-
-    public BankRouterService(
-        IBankCapabilityResolver capabilityResolver,
-        IOptions<BankPaymentIntakeOptions> intakeOptions,
-        IOptions<AbsaCapiOptions> absaOptions)
-    {
-        _capabilityResolver = capabilityResolver;
-        _intakeOptions = intakeOptions.Value;
-        _absaOptions = absaOptions.Value;
-    }
+    private readonly BankPaymentIntakeOptions _intakeOptions = intakeOptions.Value;
+    private readonly AbsaCapiOptions _absaOptions = absaOptions.Value;
 
     public Task<ApiResult<InstantPaymentResponse>> SubmitPaymentAsync(
         BankCode bank,
@@ -29,10 +21,10 @@ internal sealed class BankRouterService : IBankRouterService
         string correlationId,
         CancellationToken cancellationToken = default)
     {
-        var service = ResolveInstantPaymentService(bank);
+        var service = capabilityResolver.GetInstantPayment(bank);
         var routedRequest = ApplyInternalOrderDefaults(bank, request) with
         {
-            PaymentRail = ResolvePaymentRail(bank, request.PaymentRail)
+            PaymentRail = PaymentRailRouting.ForBankRequest(bank, request.PaymentRail)
         };
 
         return service.PayAsync(routedRequest, correlationId, cancellationToken);
@@ -44,34 +36,9 @@ internal sealed class BankRouterService : IBankRouterService
         string correlationId,
         CancellationToken cancellationToken = default)
     {
-        var service = ResolveInstantPaymentService(bank);
+        var service = capabilityResolver.GetInstantPayment(bank);
 
         return service.GetStatusAsync(request, correlationId, cancellationToken);
-    }
-
-    private IInstantPaymentService ResolveInstantPaymentService(BankCode bank) =>
-        _capabilityResolver.GetInstantPayment(bank);
-
-    private static string ResolvePaymentRail(BankCode bank, string? requestedRail)
-    {
-        if (bank == BankCode.Absa && !string.IsNullOrWhiteSpace(requestedRail))
-        {
-            var normalizedRail = requestedRail.Trim().ToUpperInvariant();
-            if (normalizedRail is "RPP" or "IIP" or "PAAF")
-            {
-                return normalizedRail;
-            }
-
-            throw new NotSupportedException($"Absa payment rail '{requestedRail}' is not supported.");
-        }
-
-        return bank switch
-        {
-            BankCode.Absa => "RPP",
-            BankCode.Fnb => "3PIM",
-            _ => throw new NotSupportedException(
-                $"No instant payment rail is configured for bank '{bank}'.")
-        };
     }
 
     private InstantPaymentRequest ApplyInternalOrderDefaults(

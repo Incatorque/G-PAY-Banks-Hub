@@ -28,27 +28,15 @@ namespace GPay.Banking;
 /// Absa may retry; this handler is idempotent.
 /// </para>
 /// </remarks>
-public class CallbackAppService : ApplicationService, ICallbackAppService
+public class CallbackAppService(
+    IBankCapabilityResolver resolver,
+    IRepository<BankHubApiCall, Guid> apiCallRepository,
+    IHttpContextAccessor httpContextAccessor,
+    IOptions<BankCallbackOptions> callbackOptions,
+    IGpayOrderSync gpayOrderSync)
+    : ApplicationService, ICallbackAppService
 {
-    private readonly IBankCapabilityResolver _resolver;
-    private readonly IRepository<BankHubApiCall, Guid> _apiCallRepository;
-    private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly BankCallbackOptions _callbackOptions;
-    private readonly IGpayOrderSync _gpayOrderSync;
-
-    public CallbackAppService(
-        IBankCapabilityResolver resolver,
-        IRepository<BankHubApiCall, Guid> apiCallRepository,
-        IHttpContextAccessor httpContextAccessor,
-        IOptions<BankCallbackOptions> callbackOptions,
-        IGpayOrderSync gpayOrderSync)
-    {
-        _resolver = resolver;
-        _apiCallRepository = apiCallRepository;
-        _httpContextAccessor = httpContextAccessor;
-        _callbackOptions = callbackOptions.Value;
-        _gpayOrderSync = gpayOrderSync;
-    }
+    private readonly BankCallbackOptions _callbackOptions = callbackOptions.Value;
 
     /// <summary>
     /// Processes a bank payment status callback and updates the matching GPay order when found.
@@ -65,7 +53,7 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
     [AllowAnonymous]
     public async Task<CallbackAckDto> ProcessPaymentAsync(string? bank = null)
     {
-        var http = _httpContextAccessor.HttpContext;
+        var http = httpContextAccessor.HttpContext;
         var sourceIp = CallbackSourceAllowList.GetSourceIp(http);
 
         var bankKey = string.IsNullOrWhiteSpace(bank)
@@ -110,7 +98,7 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             rawJson.Length);
 
         var bankCode = BankCodeParser.Parse(bankKey);
-        var handler = _resolver.GetPaymentCallback(bankCode);
+        var handler = resolver.GetPaymentCallback(bankCode);
         PaymentCallbackResult result;
         try
         {
@@ -188,7 +176,7 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
     {
         var bankStorageCode = bankCode.ToString();
         var paymentCall = await BankPaymentCallLookup.FindAsync(
-            _apiCallRepository,
+            apiCallRepository,
             bankStorageCode,
             update.TransactionReference,
             update.ApiReference);
@@ -203,7 +191,7 @@ public class CallbackAppService : ApplicationService, ICallbackAppService
             return;
         }
 
-        await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
+        await gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
         {
             GpayOrderId = gpayOrderId,
             Reference = update.TransactionReference ?? update.ApiReference,

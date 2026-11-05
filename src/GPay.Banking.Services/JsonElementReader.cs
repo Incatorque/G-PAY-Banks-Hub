@@ -90,6 +90,23 @@ internal static class JsonElementReader
         return null;
     }
 
+    public static JsonDocument? ParseOrNull(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static bool TryGet(JsonElement root, string name, out JsonElement value)
     {
         if (root.ValueKind == JsonValueKind.Object)

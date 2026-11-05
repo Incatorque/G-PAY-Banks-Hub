@@ -40,5 +40,5 @@ public class BankHubAvsRecord : AuditedAggregateRoot<Guid>
     public string? ResponseHeadersJson { get; set; }
     public string? ResponseBodyJson { get; set; }
     public string? ErrorMessage { get; set; }
-    public string Status { get; set; } = "Queued";
+    public string Status { get; set; } = AvsStatuses.Queued;
 }

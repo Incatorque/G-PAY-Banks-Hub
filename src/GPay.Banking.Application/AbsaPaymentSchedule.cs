@@ -19,29 +19,16 @@ public interface IAbsaPaymentSchedule
 
 public sealed class PaymentDeferredException(string message) : UserFriendlyException(message);
 
-internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
+internal sealed class AbsaPaymentSchedule(
+    HttpClient httpClient,
+    IGpayOrderSync gpayOrderSync,
+    IMemoryCache cache,
+    IOptions<SouthAfricanHolidayOptions> options,
+    ILogger<AbsaPaymentSchedule> logger) : IAbsaPaymentSchedule
 {
     private static readonly ConcurrentDictionary<string, Lazy<Task<HashSet<DateOnly>>>> HolidayRequests = new();
-
-    private readonly HttpClient _httpClient;
-    private readonly IGpayOrderSync _gpayOrderSync;
-    private readonly IMemoryCache _cache;
-    private readonly SouthAfricanHolidayOptions _options;
-    private readonly ILogger<AbsaPaymentSchedule> _logger;
-
-    public AbsaPaymentSchedule(
-        HttpClient httpClient,
-        IGpayOrderSync gpayOrderSync,
-        IMemoryCache cache,
-        IOptions<SouthAfricanHolidayOptions> options,
-        ILogger<AbsaPaymentSchedule> logger)
-    {
-        _httpClient = httpClient;
-        _gpayOrderSync = gpayOrderSync;
-        _cache = cache;
-        _options = options.Value;
-        _logger = logger;
-    }
+    private static readonly TimeZoneInfo SouthAfricaTimeZone = ResolveSouthAfricaTimeZone();
+    private readonly SouthAfricanHolidayOptions _options = options.Value;
 
     public async Task<string?> GetPaafDeferralReasonAsync(
         decimal amount,
@@ -54,7 +41,7 @@ internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
             return null;
         }
 
-        var southAfricaTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, GetSouthAfricaTimeZone());
+        var southAfricaTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, SouthAfricaTimeZone);
         if (southAfricaTime.DayOfWeek == DayOfWeek.Sunday)
         {
             return "Absa does not process off-us PAAF payments on Sundays.";
@@ -67,8 +54,12 @@ internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
 
         var isRtgs = amount > 5000000m;
         var cutoff = southAfricaTime.DayOfWeek == DayOfWeek.Saturday
-            ? isRtgs ? new TimeSpan(9, 30, 0) : new TimeSpan(10, 30, 0)
-            : isRtgs ? new TimeSpan(15, 30, 0) : new TimeSpan(16, 30, 0);
+            ? new TimeSpan(10, 30, 0)
+            : new TimeSpan(16, 30, 0);
+        if (isRtgs)
+        {
+            cutoff -= TimeSpan.FromHours(1);
+        }
 
         if (southAfricaTime.TimeOfDay >= cutoff)
         {
@@ -81,27 +72,29 @@ internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
 
     private async Task<bool> IsPublicHolidayAsync(DateTime date, CancellationToken cancellationToken)
     {
-        var apiSaysHoliday = false;
         try
         {
             var holidays = await GetPublicHolidaysAsync(date.Year, cancellationToken);
-            apiSaysHoliday = holidays.Contains(DateOnly.FromDateTime(date));
+            if (holidays.Contains(DateOnly.FromDateTime(date)))
+            {
+                return true;
+            }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex,
+            logger.LogWarning(ex,
                 "Unable to load South African public holidays from {HolidayApi}; falling back to GPay's holiday calendar.",
                 _options.ApiBaseUrl);
         }
 
         // Retain GPay's calendar as a manual override and as a fallback if the public API is unavailable.
-        return apiSaysHoliday || await _gpayOrderSync.IsPublicHolidayAsync(date, cancellationToken);
+        return await gpayOrderSync.IsPublicHolidayAsync(date, cancellationToken);
     }
 
     private Task<HashSet<DateOnly>> GetPublicHolidaysAsync(int year, CancellationToken cancellationToken)
     {
         var cacheKey = $"SouthAfricanPublicHolidays:{_options.CountryCode}:{year}";
-        if (_cache.TryGetValue(cacheKey, out HashSet<DateOnly>? cached) && cached is not null)
+        if (cache.TryGetValue(cacheKey, out HashSet<DateOnly>? cached) && cached is not null)
         {
             return Task.FromResult(cached);
         }
@@ -110,7 +103,7 @@ internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
         {
             var baseUrl = _options.ApiBaseUrl.TrimEnd('/') + "/";
             var url = $"{baseUrl}Holidays/{Uri.EscapeDataString(_options.CountryCode)}/{year}";
-            var holidays = await _httpClient.GetFromJsonAsync<List<PublicHolidayResponse>>(url, cancellationToken)
+            var holidays = await httpClient.GetFromJsonAsync<List<PublicHolidayResponse>>(url, cancellationToken)
                 ?? throw new InvalidOperationException("The public holiday API returned an empty response.");
 
             var dates = holidays
@@ -121,7 +114,7 @@ internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
                 .Select(holiday => DateOnly.FromDateTime(holiday.Date!.Value))
                 .ToHashSet();
 
-            _cache.Set(cacheKey, dates, TimeSpan.FromHours(Math.Max(1, _options.CacheHours)));
+            cache.Set(cacheKey, dates, TimeSpan.FromHours(Math.Max(1, _options.CacheHours)));
             return dates;
         }, LazyThreadSafetyMode.ExecutionAndPublication));
 
@@ -137,18 +130,14 @@ internal sealed class AbsaPaymentSchedule : IAbsaPaymentSchedule
         {
             return await request.Value.WaitAsync(cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        finally
         {
-            throw;
-        }
-        catch
-        {
-            HolidayRequests.TryRemove(cacheKey, out _);
-            throw;
+            ((ICollection<KeyValuePair<string, Lazy<Task<HashSet<DateOnly>>>>>)HolidayRequests)
+                .Remove(new KeyValuePair<string, Lazy<Task<HashSet<DateOnly>>>>(cacheKey, request));
         }
     }
 
-    private static TimeZoneInfo GetSouthAfricaTimeZone()
+    private static TimeZoneInfo ResolveSouthAfricaTimeZone()
     {
         try
         {

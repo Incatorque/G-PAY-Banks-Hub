@@ -1,5 +1,6 @@
 using GPay.Banking.BankHub;
 using GPay.Banking.Domain.Dtos;
+using GPay.Banking.Helpers;
 
 namespace GPay.Banking;
 
@@ -7,10 +8,24 @@ namespace GPay.Banking;
 internal static class BankPaymentResultMapper
 {
     public static PaymentResultDto From<T>(ApiResult<T> result, string correlationId)
-        where T : IPaymentResponse =>
-        Map(result, correlationId, data => new PaymentResultDto
+        where T : IPaymentResponse
+    {
+        if (!result.Success || result.Data is null)
         {
-            Status = data.RawStatusLabel ?? data.Status,
+            return new PaymentResultDto
+            {
+                CorrelationId = correlationId,
+                Status = PaymentStatuses.Error,
+                ErrorCode = result.Error?.Code,
+                ErrorMessage = result.Error?.Message,
+                AbsaError = AbsaErrorResponses.From(result.Error)
+            };
+        }
+
+        var data = result.Data;
+        return new PaymentResultDto
+        {
+            Status = PaymentStatusClassifier.Normalize(data),
             Reference = data.Reference,
             Amount = data.Amount,
             Currency = data.Currency,
@@ -21,31 +36,10 @@ internal static class BankPaymentResultMapper
             BankStatusCode = data.BankStatusCode?.ToString(),
             PaymentRail = data.PaymentRail,
             ResultDescription = data.ResultDescription,
+            CorrelationId = correlationId,
             ErrorCode = data.ErrorCode,
-            AbsaError = AbsaErrorResponses.FromCode(data.ErrorCode, data.ResultDescription)
-        });
-
-    private static PaymentResultDto Map<T>(
-        ApiResult<T> result,
-        string correlationId,
-        Func<T, PaymentResultDto> mapData)
-    {
-        if (!result.Success || result.Data is null)
-        {
-            return new PaymentResultDto
-            {
-                Success = false,
-                CorrelationId = correlationId,
-                Status = "Error",
-                ErrorCode = result.Error?.Code,
-                ErrorMessage = result.Error?.Message,
-                AbsaError = AbsaErrorResponses.From(result.Error)
-            };
-        }
-
-        var dto = mapData(result.Data);
-        dto.Success = true;
-        dto.CorrelationId = correlationId;
-        return dto;
+            AbsaError = AbsaErrorResponses.FromCode(data.ErrorCode, data.ResultDescription),
+            Success = true
+        };
     }
 }

@@ -10,22 +10,11 @@ using Microsoft.Extensions.Logging;
 namespace GPay.Banking.EntityFrameworkCore.GPay;
 
 /// <summary>SMTP notifications for GPay order lifecycle events produced by Bank Hub.</summary>
-internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
+internal sealed class SmtpGpayPaymentNotifier(
+    IConfiguration configuration,
+    IHostEnvironment hostEnvironment,
+    ILogger<SmtpGpayPaymentNotifier> logger) : IGpayPaymentNotifier
 {
-    private readonly IConfiguration _configuration;
-    private readonly IHostEnvironment _hostEnvironment;
-    private readonly ILogger<SmtpGpayPaymentNotifier> _logger;
-
-    public SmtpGpayPaymentNotifier(
-        IConfiguration configuration,
-        IHostEnvironment hostEnvironment,
-        ILogger<SmtpGpayPaymentNotifier> logger)
-    {
-        _configuration = configuration;
-        _hostEnvironment = hostEnvironment;
-        _logger = logger;
-    }
-
     public Task NotifyPaymentInitiatedAsync(
         GpayPaymentInitiatedNotification notification,
         CancellationToken cancellationToken = default) =>
@@ -44,27 +33,26 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
                 : "payment-initiate.html";
         var templatePath = new[]
             {
-                Path.Combine(_hostEnvironment.ContentRootPath, "Templates", templateFileName),
+                Path.Combine(hostEnvironment.ContentRootPath, "Templates", templateFileName),
                 Path.Combine(AppContext.BaseDirectory, "Templates", templateFileName)
             }
             .FirstOrDefault(File.Exists);
 
         if (templatePath is null)
         {
-            _logger.LogError("Payment notification email template {TemplateFileName} was not found.", templateFileName);
+            logger.LogError("Payment notification email template {TemplateFileName} was not found.", templateFileName);
             return;
         }
 
         var html = await File.ReadAllTextAsync(templatePath, cancellationToken);
-        var environment = _configuration["GpayNotifications:Environment"];
-        var environmentName = string.IsNullOrWhiteSpace(environment)
-            ? _hostEnvironment.EnvironmentName
-            : environment.Trim();
-        var environmentBadge = environmentName.ToUpperInvariant() switch
+        var notificationSettings = configuration.GetSection("GpayNotifications");
+        var environmentName = GetEnvironmentName(notificationSettings);
+        var environmentKey = NormalizeEnvironmentKey(environmentName);
+        var environmentBadge = environmentKey switch
         {
-            "DEV" or "DEVELOPMENT" or "TEST" or "TESTING" => "DEV / TESTING",
-            "PROD" or "PRODUCTION" => "PROD",
-            _ => environmentName.ToUpperInvariant()
+            "Development" or "Testing" => "DEV / TESTING",
+            "Production" => "PROD",
+            _ => environmentKey.ToUpperInvariant()
         };
         var statusDescription = notification.StatusDescription ??
                                 (notification.IsError
@@ -76,7 +64,6 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             .Replace("{{BankName}}", Encode(notification.Bank), StringComparison.Ordinal)
             .Replace("{{Route}}", Encode(notification.Route), StringComparison.Ordinal)
             .Replace("{{Rail}}", Encode(string.IsNullOrWhiteSpace(notification.Rail) ? "-" : notification.Rail), StringComparison.Ordinal)
-            .Replace("{{Rail}", Encode(string.IsNullOrWhiteSpace(notification.Rail) ? "-" : notification.Rail), StringComparison.Ordinal)
             .Replace("{{Currency}}", Encode(notification.Currency), StringComparison.Ordinal)
             .Replace("{{Amount}}", notification.Amount.ToString("N2", CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("{{OrderNumber}}", Encode(notification.OrderNumber), StringComparison.Ordinal)
@@ -90,7 +77,14 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             .Replace("{{StatusDescription}}", Encode(statusDescription), StringComparison.Ordinal)
             .Replace("{{TransactionReference}}", Encode(notification.TransactionReference ?? "-"), StringComparison.Ordinal);
 
-        await SendAsync("PaymentInitiatedRecipients", BuildSubject(notification), html, cancellationToken);
+        await SendAsync(
+            notificationSettings,
+            environmentName,
+            environmentKey,
+            "PaymentInitiatedRecipients",
+            BuildSubject(notification),
+            html,
+            cancellationToken);
     }
 
     private static string BuildSubject(GpayPaymentInitiatedNotification notification)
@@ -109,29 +103,25 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
     }
 
     private async Task SendAsync(
+        IConfigurationSection section,
+        string environmentName,
+        string environmentKey,
         string recipientsKey,
         string subject,
         string body,
         CancellationToken cancellationToken)
     {
-        var section = _configuration.GetSection("GpayNotifications");
         var host = section["SmtpHost"];
-        var environment = section["Environment"];
-        var environmentName = string.IsNullOrWhiteSpace(environment)
-            ? _hostEnvironment.EnvironmentName
-            : environment.Trim();
-        var environmentKey = NormalizeEnvironmentKey(environmentName);
-        var from = section[$"FromByEnvironment:{environmentKey}"];
-        if (string.IsNullOrWhiteSpace(from) && !string.Equals(environmentName, environmentKey, StringComparison.OrdinalIgnoreCase))
-        {
-            from = section[$"FromByEnvironment:{environmentName}"];
-        }
-
-        from = string.IsNullOrWhiteSpace(from) ? section["From"] : from.Trim();
+        var from = StringValueResolver.FirstNonEmpty(
+            section[$"FromByEnvironment:{environmentKey}"],
+            string.Equals(environmentName, environmentKey, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : section[$"FromByEnvironment:{environmentName}"],
+            section["From"]);
         var recipients = section[recipientsKey];
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(recipients))
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "GPay email skipped because SMTP host, sender, or {RecipientsKey} is not configured. Subject: {Subject}",
                 recipientsKey,
                 subject);
@@ -154,7 +144,7 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
 
             if (message.To.Count == 0)
             {
-                _logger.LogWarning("GPay email skipped because {RecipientsKey} has no recipients. Subject: {Subject}", recipientsKey, subject);
+                logger.LogWarning("GPay email skipped because {RecipientsKey} has no recipients. Subject: {Subject}", recipientsKey, subject);
                 return;
             }
 
@@ -172,14 +162,26 @@ internal sealed class SmtpGpayPaymentNotifier : IGpayPaymentNotifier
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            await client.SendMailAsync(message);
-            _logger.LogInformation("GPay payment notification sent. Subject: {Subject}", subject);
+            await client.SendMailAsync(message, cancellationToken);
+            logger.LogInformation("GPay payment notification sent. Subject: {Subject}", subject);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             // A notification failure must not undo a bank status or database update.
-            _logger.LogError(ex, "Failed to send GPay payment notification. Subject: {Subject}", subject);
+            logger.LogError(ex, "Failed to send GPay payment notification. Subject: {Subject}", subject);
         }
+    }
+
+    private string GetEnvironmentName(IConfigurationSection section)
+    {
+        var environment = section["Environment"];
+        return string.IsNullOrWhiteSpace(environment)
+            ? hostEnvironment.EnvironmentName
+            : environment.Trim();
     }
 
     private static string NormalizeEnvironmentKey(string environmentName) => environmentName.Trim().ToUpperInvariant() switch

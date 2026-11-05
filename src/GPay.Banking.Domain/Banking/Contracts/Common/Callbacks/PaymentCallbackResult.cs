@@ -15,8 +15,6 @@ public sealed class PaymentCallbackResult
 
     public static PaymentCallbackResult Unauthorized(string message) => new()
     {
-        IsAuthorized = false,
-        Success = false,
         Message = message
     };
 
@@ -24,14 +22,12 @@ public sealed class PaymentCallbackResult
     {
         IsAuthorized = true,
         Success = true,
-        Message = string.Empty,
         Update = update
     };
 
     public static PaymentCallbackResult Fail(string message) => new()
     {
         IsAuthorized = true,
-        Success = false,
         Message = message
     };
 }

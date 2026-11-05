@@ -32,8 +32,4 @@ public interface IAbsaPaymentMapper
         AbsaPaymentStatusResponse response,
         PaymentStatusRequest request);
 
-    /// <summary>
-    /// Maps Absa Status code to a normalized label.
-    /// </summary>
-    string ToStatusLabel(int? statusCode, bool hasErrors);
 }

@@ -11,7 +11,7 @@ public class BankHubAvsBatch : AuditedAggregateRoot<Guid>
     public int FailedCount { get; set; }
     public int PendingCount { get; set; }
     public int SegmentCount { get; set; }
-    public string Status { get; set; } = "Queued";
+    public string Status { get; set; } = AvsStatuses.Queued;
     public string? BankCode { get; set; }
     public Guid? ExternalBatchId { get; set; }
     public Guid? ApiClientId { get; set; }

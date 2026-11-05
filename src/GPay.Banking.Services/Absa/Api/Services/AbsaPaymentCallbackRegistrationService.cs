@@ -8,22 +8,11 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// <summary>
 /// Absa channel callback URL registration (Payment API v1.8 §9.2–9.3).
 /// </summary>
-internal sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackRegistrationService
+internal sealed class AbsaPaymentCallbackRegistrationService(
+    IAbsaCapiClient capiClient,
+    IBankErrorMapper errorMapper,
+    ILogger<AbsaPaymentCallbackRegistrationService> logger) : IPaymentCallbackRegistrationService
 {
-    private readonly IAbsaCapiClient _capiClient;
-    private readonly IBankErrorMapper _errorMapper;
-    private readonly ILogger<AbsaPaymentCallbackRegistrationService> _logger;
-
-    public AbsaPaymentCallbackRegistrationService(
-        IAbsaCapiClient capiClient,
-        IBankErrorMapper errorMapper,
-        ILogger<AbsaPaymentCallbackRegistrationService> logger)
-    {
-        _capiClient = capiClient;
-        _errorMapper = errorMapper;
-        _logger = logger;
-    }
-
     /// <inheritdoc />
     public Task<ApiResult<PaymentCallbackRegistrationResponse>> RegisterAsync(
         PaymentCallbackRegistrationRequest request,
@@ -55,22 +44,26 @@ internal sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackR
         try
         {
             var uri = request.Uri.Trim();
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Absa payment callback unregister Uri={Uri} CorrelationId={CorrelationId}",
                 request.Uri,
                 correlationId);
 
-            var absaResponse = await _capiClient.UnregisterPaymentCallbackAsync(
+            var absaResponse = await capiClient.UnregisterPaymentCallbackAsync(
                 new AbsaPaymentCallbackUnregisterRequest { Uri = uri },
                 cancellationToken);
 
-            return MapResponse(absaResponse, uri, "Unregistered", correlationId);
+            return MapResponse(
+                absaResponse,
+                uri,
+                "Unregistered",
+                correlationId,
+                "CALLBACK_UNREGISTER_ERROR",
+                "Absa payment callback unregistration failed.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Absa payment callback unregister failed CorrelationId={CorrelationId}", correlationId);
-            var apiError = _errorMapper.Map("CALLBACK_UNREGISTER_EXCEPTION", ex.Message);
-            return ApiResult<PaymentCallbackRegistrationResponse>.Fail(apiError, correlationId);
+            return MapException(ex, "unregister", "CALLBACK_UNREGISTER_EXCEPTION", correlationId);
         }
     }
 
@@ -89,12 +82,12 @@ internal sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackR
         try
         {
             var uri = request.Uri.Trim();
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Absa payment callback register Uri={Uri} CorrelationId={CorrelationId}",
                 request.Uri,
                 correlationId);
 
-            var absaResponse = await _capiClient.RegisterPaymentCallbackAsync(
+            var absaResponse = await capiClient.RegisterPaymentCallbackAsync(
                 new AbsaPaymentCallbackRegisterRequest
                 {
                     Uri = uri,
@@ -103,28 +96,50 @@ internal sealed class AbsaPaymentCallbackRegistrationService : IPaymentCallbackR
                 },
                 cancellationToken);
 
-            return MapResponse(absaResponse, uri, successStatus, correlationId);
+            return MapResponse(
+                absaResponse,
+                uri,
+                successStatus,
+                correlationId,
+                "CALLBACK_REGISTER_ERROR",
+                "Absa payment callback registration failed.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Absa payment callback register failed CorrelationId={CorrelationId}", correlationId);
-            var apiError = _errorMapper.Map("CALLBACK_REGISTER_EXCEPTION", ex.Message);
-            return ApiResult<PaymentCallbackRegistrationResponse>.Fail(apiError, correlationId);
+            return MapException(ex, "register", "CALLBACK_REGISTER_EXCEPTION", correlationId);
         }
+    }
+
+    private ApiResult<PaymentCallbackRegistrationResponse> MapException(
+        Exception exception,
+        string operation,
+        string errorCode,
+        string correlationId)
+    {
+        logger.LogError(
+            exception,
+            "Absa payment callback {Operation} failed CorrelationId={CorrelationId}",
+            operation,
+            correlationId);
+        return ApiResult<PaymentCallbackRegistrationResponse>.Fail(
+            errorMapper.Map(errorCode, exception.Message),
+            correlationId);
     }
 
     private ApiResult<PaymentCallbackRegistrationResponse> MapResponse(
         AbsaPaymentCallbackRegisterResponse absaResponse,
         string uri,
         string successStatus,
-        string correlationId)
+        string correlationId,
+        string fallbackErrorCode,
+        string fallbackErrorMessage)
     {
         if (!absaResponse.Succeeded)
         {
             var first = absaResponse.ErrorList?.FirstOrDefault();
-            var code = first?.Code ?? "CALLBACK_REGISTER_ERROR";
-            var message = first?.Description ?? first?.Message ?? "Absa payment callback registration failed.";
-            var apiError = _errorMapper.Map(code, message);
+            var code = first?.Code ?? fallbackErrorCode;
+            var message = first?.Description ?? first?.Message ?? fallbackErrorMessage;
+            var apiError = errorMapper.Map(code, message);
             return ApiResult<PaymentCallbackRegistrationResponse>.Fail(apiError, correlationId);
         }
 

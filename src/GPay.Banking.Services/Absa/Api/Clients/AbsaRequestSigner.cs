@@ -10,23 +10,13 @@ namespace GPay.Banking.Services.Absa.Api.Clients;
 /// <summary>
 /// Signs request bodies with SHA256 + RSA-PSS using the onboarding client certificate.
 /// </summary>
-internal sealed class AbsaRequestSigner : IAbsaRequestSigner
+internal sealed class AbsaRequestSigner(
+    IOptions<AbsaCapiOptions> options,
+    ILogger<AbsaRequestSigner> logger) : IAbsaRequestSigner
 {
-    private readonly AbsaCapiOptions _options;
-    private readonly ILogger<AbsaRequestSigner> _logger;
-    private readonly Lazy<X509Certificate2?> _certificate;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AbsaRequestSigner"/> class.
-    /// </summary>
-    public AbsaRequestSigner(
-        IOptions<AbsaCapiOptions> options,
-        ILogger<AbsaRequestSigner> logger)
-    {
-        _options = options.Value;
-        _logger = logger;
-        _certificate = new Lazy<X509Certificate2?>(LoadCertificate);
-    }
+    private readonly AbsaCapiOptions _options = options.Value;
+    private readonly Lazy<X509Certificate2?> _certificate =
+        new(() => AbsaClientCertificateLoader.Load(options.Value, logger));
 
     /// <inheritdoc />
     public void ApplyHeaders(HttpRequestMessage request, string? jsonBody)
@@ -45,7 +35,7 @@ internal sealed class AbsaRequestSigner : IAbsaRequestSigner
 
         if (_options.SkipRequestSignature)
         {
-            _logger.LogWarning("Absa X-Signature skipped (AbsaCapi:SkipRequestSignature=true).");
+            logger.LogWarning("Absa X-Signature skipped (AbsaCapi:SkipRequestSignature=true).");
             return;
         }
 
@@ -57,13 +47,8 @@ internal sealed class AbsaRequestSigner : IAbsaRequestSigner
     {
         // MIG sample CreateSignedHeader:
         // "X-Date:{date}\nX-Client-API-Key:{key}\n{body}"
-        var textualPart = string.Format(
-            System.Globalization.CultureInfo.InvariantCulture,
-            "X-Date:{1}{0}X-Client-API-Key:{2}{0}{3}",
-            Environment.NewLine,
-            dateHeaderValue,
-            _options.ClientApiKey,
-            postRequest);
+        var lineBreak = Environment.NewLine;
+        var textualPart = $"X-Date:{dateHeaderValue}{lineBreak}X-Client-API-Key:{_options.ClientApiKey}{lineBreak}{postRequest}";
 
         var signatureBytes = Encoding.UTF8.GetBytes(textualPart);
         var certificate = _certificate.Value
@@ -78,6 +63,4 @@ internal sealed class AbsaRequestSigner : IAbsaRequestSigner
         var signed = rsa.SignData(signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
         return Convert.ToBase64String(signed);
     }
-
-    private X509Certificate2? LoadCertificate() => AbsaClientCertificateLoader.Load(_options, _logger);
 }

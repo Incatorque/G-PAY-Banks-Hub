@@ -40,7 +40,7 @@ public class InitiatePaymentRequestDto
     /// <summary>Beneficiary bank name/code. Used to apply Absa on-us versus off-us processing rules.</summary>
     public string? BeneficiaryBank { get; set; }
 
-    /// <summary>Payment rail: RPP (PayShap), IIP (RTC), PAAF. Default RPP.</summary>
+    /// <summary>Bank-specific payment rail. Absa accepts RPP (PayShap), IIP (RTC), or PAAF and defaults to RPP; other banks use their own rail identifiers.</summary>
     public string PaymentRail { get; set; } = string.Empty;
 
     /// <summary>Authorisation.SubmittingEntityName (defaults from AbsaCapi config).</summary>

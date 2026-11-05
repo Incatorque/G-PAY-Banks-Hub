@@ -2,6 +2,6 @@ namespace GPay.Banking.Domain.Dtos;
 
 
 /// <summary>
-/// GPay instant payment (PayShap / RTC) response.
+/// Bank-agnostic GPay instant payment response.
 /// </summary>
 public sealed class InstantPaymentResponse : PaymentResponseBase;

@@ -6,7 +6,7 @@ using GPay.Banking;
 namespace GPay.Banking.Domain;
 
 /// <summary>
-/// Instant payment (PayShap) capability implemented by each bank adapter.
+/// Bank-specific instant payment capability.
 /// </summary>
 public interface IInstantPaymentService
 {

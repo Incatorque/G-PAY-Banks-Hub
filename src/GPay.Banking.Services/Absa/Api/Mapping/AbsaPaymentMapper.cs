@@ -9,19 +9,11 @@ namespace GPay.Banking.Services.Absa.Api.Mapping;
 /// <summary>
 /// Default Absa payment mapper. Default Economics.Indicator = RPP (PayShap).
 /// </summary>
-public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
+public sealed class AbsaPaymentMapper(IOptions<AbsaCapiOptions> options) : IAbsaPaymentMapper
 {
     private static readonly TimeSpan SouthAfricaOffset = TimeSpan.FromHours(2);
 
-    private readonly AbsaCapiOptions _options;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AbsaPaymentMapper"/> class.
-    /// </summary>
-    public AbsaPaymentMapper(IOptions<AbsaCapiOptions> options)
-    {
-        _options = options.Value;
-    }
+    private readonly AbsaCapiOptions _options = options.Value;
 
     /// <summary>
     /// Parameterless constructor for unit tests.
@@ -39,7 +31,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
     /// <inheritdoc />
     public AbsaPaymentInitiateRequest ToAbsaInitiateRequest(InstantPaymentRequest request)
     {
-        var rail = NormalizeRail(request.PaymentRail);
+        var rail = PaymentRailRouting.ForBankRequest(BankCode.Absa, request.PaymentRail);
         var fromAccount = StringValueResolver.FirstNonEmpty(request.FromAccountNumber, _options.DefaultSourceAccountNumber)
             ?? throw new InvalidOperationException("FromAccountNumber is required.");
         var shortName = StringValueResolver.FirstNonEmpty(request.FromShortName, _options.DefaultSourceShortName) ?? "GPAY";
@@ -130,8 +122,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
         var apiRef = response.GetCorrelation(3);
         var txRef = response.GetCorrelation(4) ?? request.Reference;
         var statusCode = response.StatusCode;
-        var hasErrors = response.HasErrors;
-        var label = ToStatusLabel(statusCode, hasErrors);
+        var status = AbsaPaymentStatuses.Map(statusCode);
         var firstError = response.ErrorList?.FirstOrDefault();
 
         return new InstantPaymentResponse
@@ -141,14 +132,14 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             ApiReference = apiRef,
             SourceStatementRef = response.GetCorrelation(1),
             TargetStatementRef = response.GetCorrelation(2),
-            Status = label,
-            RawStatusLabel = label,
+            Status = status.Label,
+            RawStatusLabel = status.Label,
             BankStatusCode = statusCode,
-            PaymentRail = NormalizeRail(request.PaymentRail),
+            PaymentRail = PaymentRailRouting.ForBankRequest(BankCode.Absa, request.PaymentRail),
             Reference = request.Reference,
             Amount = request.Amount,
             Currency = request.Currency,
-            ResultDescription = firstError?.Description ?? firstError?.Message ?? InitiateStatusDescription(statusCode),
+            ResultDescription = firstError?.Description ?? firstError?.Message ?? InitiateStatusDescription(statusCode, status.BankName),
             ErrorCode = firstError?.Code
         };
     }
@@ -191,8 +182,7 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
         var apiRef = item.GetCorrelation(3) ?? request.ApiReference;
         var txRef = item.GetCorrelation(4) ?? request.TransactionReference;
         var statusCode = item.StatusCode;
-        var hasErrors = item.HasErrors || response.HasErrors;
-        var label = ToStatusLabel(statusCode, hasErrors);
+        var status = AbsaPaymentStatuses.Map(statusCode);
         var firstError = item.ErrorList?.FirstOrDefault() ?? response.ErrorList?.FirstOrDefault();
 
         return new PaymentStatusResponse
@@ -202,39 +192,20 @@ public sealed class AbsaPaymentMapper : IAbsaPaymentMapper
             ApiReference = apiRef,
             SourceStatementRef = item.GetCorrelation(1),
             TargetStatementRef = item.GetCorrelation(2),
-            Status = label,
-            RawStatusLabel = label,
+            Status = status.Label,
+            RawStatusLabel = status.Label,
             BankStatusCode = statusCode,
             ErrorCode = firstError?.Code,
-            ResultDescription = firstError?.Description ?? firstError?.Message ?? AbsaPaymentStatuses.ToBankName(statusCode)
+            ResultDescription = firstError?.Description ?? firstError?.Message ?? status.BankName
         };
-    }
-
-    /// <inheritdoc />
-    public string ToStatusLabel(int? statusCode, bool hasErrors)
-    {
-        if (statusCode is null or 0)
-        {
-            return "Failed";
-        }
-
-        if (hasErrors && statusCode is 4 or 6 or 7)
-        {
-            return "Failed";
-        }
-
-        return AbsaPaymentStatuses.ToLabel(statusCode);
     }
 
     private static string FormatAmount(decimal amount) =>
         amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static string InitiateStatusDescription(int? statusCode) => statusCode == 8
+    private static string InitiateStatusDescription(int? statusCode, string bankName) => statusCode == 8
         ? "The Transaction Reference is a duplicate. Please enter a unique Transaction Reference."
-        : AbsaPaymentStatuses.ToBankName(statusCode);
-
-    private static string NormalizeRail(string? rail) =>
-        string.IsNullOrWhiteSpace(rail) ? "RPP" : rail.Trim().ToUpperInvariant();
+        : bankName;
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];

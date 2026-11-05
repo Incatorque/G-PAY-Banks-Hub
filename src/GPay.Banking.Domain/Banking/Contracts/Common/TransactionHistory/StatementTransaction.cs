@@ -1,8 +1,6 @@
 namespace GPay.Banking.Domain.Dtos;
 
 
-using GPay.Banking;
-
 /// <summary>
 /// A single statement / transaction history line.
 /// </summary>

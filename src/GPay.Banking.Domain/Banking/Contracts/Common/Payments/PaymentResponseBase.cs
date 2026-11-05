@@ -33,7 +33,7 @@ public abstract class PaymentResponseBase : IPaymentResponse
     /// <summary>Raw Absa status code.</summary>
     public int? BankStatusCode { get; init; }
 
-    /// <summary>Payment rail used (RPP / IIP / PAAF).</summary>
+    /// <summary>Bank-specific payment rail used (for example, Absa RPP / IIP / PAAF or FNB 3PIM).</summary>
     public string? PaymentRail { get; init; }
 
     /// <summary>Human-readable result description.</summary>

@@ -7,20 +7,15 @@ namespace GPay.Banking.EntityFrameworkCore.GPay;
 /// <summary>
 /// Reads Bank Hub-ready orders from the shared GPay database through EF Core LINQ.
 /// </summary>
-internal sealed class GpayOrderSync : IGpayOrderSync
+internal sealed class GpayOrderSync(
+    BankingDbContext dbContext,
+    ILogger<GpayOrderSync> logger) : IGpayOrderSync
 {
     private const string PaymentAcceptedTransactionCode = "3PIM Transaction";
-
-    private readonly BankingDbContext _dbContext;
-    private readonly ILogger<GpayOrderSync> _logger;
-
-    public GpayOrderSync(
-        BankingDbContext dbContext,
-        ILogger<GpayOrderSync> logger)
-    {
-        _dbContext = dbContext;
-        _logger = logger;
-    }
+    private const string AbsaBankNameToken = "ABSA";
+    private const string FnbBankNameToken = "FNB";
+    private const string FirstNationalBankNameToken = "FIRST NATIONAL";
+    private const string NedbankNameToken = "NEDBANK";
 
     public async Task<IReadOnlyList<GpayPaymentOrderCandidate>> GetEligiblePaymentOrdersAsync(
         int batchSize,
@@ -38,24 +33,24 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         var includeNedbank = enabledBanks.Contains(BankCode.Nedbank);
 
-        var bankHubReadyOrders = _dbContext.Set<GpayOrderRow>()
+        var bankHubReadyOrders = dbContext.Set<GpayOrderRow>()
             .AsNoTracking()
             .Where(order => order.StatusId == GpayOrderStatusIds.BankHubPrs && order.Active == true);
 
         var ordersFromEnabledBanks =
             from order in bankHubReadyOrders
-            join payer in _dbContext.Set<GpayAccountRow>().AsNoTracking()
+            join payer in dbContext.Set<GpayAccountRow>().AsNoTracking()
                 on order.FromAccountId equals (Guid?)payer.Id
-            join payerBank in _dbContext.Set<GpayBankRow>().AsNoTracking()
+            join payerBank in dbContext.Set<GpayBankRow>().AsNoTracking()
                 on payer.BankId equals payerBank.Id
+            let bankName = payerBank.Name.ToUpper()
             where payer.Active == true &&
                   payerBank.Active == true &&
                   order.FromAccountId != order.ToAccountId &&
-                  ((includeAbsa && payerBank.Name.ToUpper().Contains("ABSA")) ||
+                  ((includeAbsa && bankName.Contains(AbsaBankNameToken)) ||
                    (includeFnb &&
-                    (payerBank.Name.ToUpper().Contains("FNB") ||
-                     payerBank.Name.ToUpper().Contains("FIRST NATIONAL"))) ||
-                   (includeNedbank && payerBank.Name.ToUpper().Contains("NEDBANK")))
+                    (bankName.Contains(FnbBankNameToken) || bankName.Contains(FirstNationalBankNameToken))) ||
+                   (includeNedbank && bankName.Contains(NedbankNameToken)))
             select new
             {
                 Order = order,
@@ -65,17 +60,17 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         var ordersWithPayeeAccounts =
             from candidate in ordersFromEnabledBanks
-            join payee in _dbContext.Set<GpayAccountRow>().AsNoTracking()
+            join payee in dbContext.Set<GpayAccountRow>().AsNoTracking()
                 on candidate.Order.ToAccountId equals (Guid?)payee.Id
-            join payeeBank in _dbContext.Set<GpayBankRow>().AsNoTracking()
+            join payeeBank in dbContext.Set<GpayBankRow>().AsNoTracking()
                 on payee.BankId equals payeeBank.Id into payeeBankGroup
             from payeeBank in payeeBankGroup.DefaultIfEmpty()
-            join countryCurrency in _dbContext.Set<GpayCountryCurrencyRow>().AsNoTracking()
-    on candidate.Payer.CountryCurrencyId equals (int?)countryCurrency.Id
-    into countryCurrencyGroup
+            join countryCurrency in dbContext.Set<GpayCountryCurrencyRow>().AsNoTracking()
+                on candidate.Payer.CountryCurrencyId equals (int?)countryCurrency.Id
+                into countryCurrencyGroup
             from countryCurrency in countryCurrencyGroup.DefaultIfEmpty()
 
-            join currency in _dbContext.Set<GpayCurrencyRow>().AsNoTracking()
+            join currency in dbContext.Set<GpayCurrencyRow>().AsNoTracking()
                 on countryCurrency.CurrencyId equals currency.Id
                 into currencyGroup
             from currency in currencyGroup.DefaultIfEmpty()
@@ -91,7 +86,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         var ordersWithAmount =
             from candidate in ordersWithPayeeAccounts
-            let amount = _dbContext.Set<GpayOrderItemRow>()
+            let amount = dbContext.Set<GpayOrderItemRow>()
                 .Where(item => item.OrderId == candidate.Order.Id)
                 .Sum(item => (item.Price ?? 0m) * (item.Quantity ?? 0m))
             where amount > 0m
@@ -118,7 +113,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 ToBranchCode = candidate.Candidate.Payee.BranchCode,
                 ToBankName = candidate.Candidate.PayeeBankName,
                 candidate.Candidate.Currency,
-                BeneficiaryName = _dbContext.Set<GpayEntityRow>()
+                BeneficiaryName = dbContext.Set<GpayEntityRow>()
                     .Where(entity => entity.Id == candidate.Candidate.Payee.EntityId)
                     .Select(entity => entity.Name)
                     .FirstOrDefault()
@@ -140,45 +135,13 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 FromAccountNumber = row.FromAccountNumber,
                 ToAccountNumber = row.ToAccountNumber,
                 ToBranchCode = row.ToBranchCode,
-                BeneficiaryBank = string.IsNullOrWhiteSpace(row.ToBankName) ? string.Empty : NormalizeBank(row.ToBankName),
+                BeneficiaryBank = NormalizeBank(row.ToBankName),
                 BeneficiaryName = row.BeneficiaryName
             })
             .ToList();
 
-        var orderIds = candidates.Select(order => order.OrderId).ToArray();
-        var currentStatuses = new Dictionary<Guid, string>();
-        if (orderIds.Length > 0)
-        {
-            currentStatuses = await (
-                from order in _dbContext.Set<GpayOrderRow>().AsNoTracking()
-                join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
-                    on order.StatusId equals status.Id
-                where orderIds.Contains(order.Id)
-                select new { order.Id, status.Name })
-                .ToDictionaryAsync(row => row.Id, row => row.Name, cancellationToken);
-        }
-
-        var eligibleCandidates = new List<GpayPaymentOrderCandidate>(candidates.Count);
-        foreach (var order in candidates)
-        {
-            currentStatuses.TryGetValue(order.OrderId, out var currentOrderStatus);
-            if (!IsReadyForPayment(currentOrderStatus))
-            {
-                _logger.LogInformation(
-                    "Skipping GPay order {OrderNumber}; its current status is {OrderStatus}, not Bank Hub-ready.",
-                    order.OrderNumber,
-                    currentOrderStatus ?? "<missing>");
-
-                continue;
-            }
-
-            eligibleCandidates.Add(order);
-        }
-
-        candidates = eligibleCandidates;
-
-        _logger.LogInformation(
-                    "GPay Bank Hub-ready poll found {OrderCount} eligible order(s) across enabled banks.",
+        logger.LogInformation(
+            "GPay Bank Hub-ready poll found {OrderCount} candidate order(s) across enabled banks.",
             candidates.Count);
 
         if (candidates.Count == 0)
@@ -191,7 +154,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
             var orderWithAmountCount = await ordersWithAmount.CountAsync(cancellationToken);
 
-            _logger.LogWarning(
+            logger.LogWarning(
                 "GPay Bank Hub-ready poll returned no eligible orders. ActiveBankHubReady={BankHubReadyCount}, EnabledBank={BankCount}, WithPayee={PayeeCount}, WithPositiveAmount={AmountCount}. EnabledBanks={EnabledBanks}.",
                 bankHubReadyOrderCount,
                 enabledBankOrderCount,
@@ -207,19 +170,16 @@ internal sealed class GpayOrderSync : IGpayOrderSync
         int batchSize,
         CancellationToken cancellationToken = default)
     {
-        var startOfToday = DateTime.Today;
-        var startOfTomorrow = startOfToday.AddDays(1);
-
         var query =
-            from order in _dbContext.Set<GpayOrderRow>().AsNoTracking()
-            join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+            from order in dbContext.Set<GpayOrderRow>().AsNoTracking()
+            join status in dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
                 on order.StatusId equals status.Id
-            join payer in _dbContext.Set<GpayAccountRow>().AsNoTracking()
+            join payer in dbContext.Set<GpayAccountRow>().AsNoTracking()
                 on order.FromAccountId equals (Guid?)payer.Id
-            join bank in _dbContext.Set<GpayBankRow>().AsNoTracking()
+            join bank in dbContext.Set<GpayBankRow>().AsNoTracking()
                 on payer.BankId equals bank.Id
-            where status.Name.ToUpper() == "SUBMITTEDTOQUEUE"
-            orderby order.OrderDate, order.OrderNumber 
+            where status.Name.ToUpper() == "BankHub - SubmittedToQueue".ToUpper()
+            orderby order.OrderDate, order.OrderNumber
             select new
             {
                 order.Id,
@@ -227,19 +187,19 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 order.ReferenceNumber,
                 BankName = bank.Name,
                 FromAccountNumber = payer.AccountNumber,
-                ToAccountNumber = _dbContext.Set<GpayAccountRow>()
+                ToAccountNumber = dbContext.Set<GpayAccountRow>()
                     .Where(account => (Guid?)account.Id == order.ToAccountId)
                     .Select(account => account.AccountNumber)
                     .FirstOrDefault(),
-                Currency = _dbContext.Set<GpayCountryCurrencyRow>()
+                Currency = dbContext.Set<GpayCountryCurrencyRow>()
                     .Where(countryCurrency => (int?)countryCurrency.Id == payer.CountryCurrencyId)
                     .Join(
-                        _dbContext.Set<GpayCurrencyRow>(),
+                        dbContext.Set<GpayCurrencyRow>(),
                         countryCurrency => countryCurrency.CurrencyId,
                         currency => currency.Id,
                         (countryCurrency, currency) => currency.Code)
                     .FirstOrDefault(),
-                Amount = _dbContext.Set<GpayOrderItemRow>()
+                Amount = dbContext.Set<GpayOrderItemRow>()
                     .Where(item => item.OrderId == order.Id)
                     .Sum(item => (item.Price ?? 0m) * (item.Quantity ?? 0m))
             };
@@ -259,8 +219,8 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             })
             .ToList();
 
-        _logger.LogInformation(
-            "Found {OrderCount} today's non-terminal GPay orders for bank status checks.",
+        logger.LogInformation(
+            "Found {OrderCount} submitted GPay orders for bank status checks.",
             candidates.Count);
 
         return candidates;
@@ -269,8 +229,8 @@ internal sealed class GpayOrderSync : IGpayOrderSync
     public Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
     {
         var query =
-            from order in _dbContext.Set<GpayOrderRow>().AsNoTracking()
-            join status in _dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+            from order in dbContext.Set<GpayOrderRow>().AsNoTracking()
+            join status in dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
                 on order.StatusId equals status.Id
             where order.Id == orderId
             select status.Name;
@@ -282,28 +242,30 @@ internal sealed class GpayOrderSync : IGpayOrderSync
     {
         var dayStart = date.Date;
         var nextDay = dayStart.AddDays(1);
-        return _dbContext.Set<GpayHolidayRow>().AsNoTracking()
+        return dbContext.Set<GpayHolidayRow>().AsNoTracking()
             .AnyAsync(holiday => holiday.Date >= dayStart && holiday.Date < nextDay, cancellationToken);
     }
 
-    private static bool IsReadyForPayment(string? status) =>
-        string.Equals(status, "BankHub - PRS", StringComparison.OrdinalIgnoreCase);
-
-    private static string NormalizeBank(string bankName)
+    private static string NormalizeBank(string? bankName)
     {
+        if (string.IsNullOrWhiteSpace(bankName))
+        {
+            return string.Empty;
+        }
+
         var normalized = bankName.ToUpperInvariant();
 
-        if (normalized.Contains("ABSA"))
+        if (normalized.Contains(AbsaBankNameToken))
         {
             return BankCode.Absa.ToString();
         }
 
-        if (normalized.Contains("FNB") || normalized.Contains("FIRST NATIONAL"))
+        if (normalized.Contains(FnbBankNameToken) || normalized.Contains(FirstNationalBankNameToken))
         {
             return BankCode.Fnb.ToString();
         }
 
-        if (normalized.Contains("NEDBANK"))
+        if (normalized.Contains(NedbankNameToken))
         {
             return BankCode.Nedbank.ToString();
         }
@@ -318,14 +280,13 @@ internal sealed class GpayOrderSync : IGpayOrderSync
         GpayPaymentSyncRequest request,
         CancellationToken cancellationToken = default)
     {
-        var targetStatus = GpayOrderStatusIds.FromHubStatus(request.HubStatus);
-        if (!targetStatus.HasValue)
+        if (GpayOrderStatusIds.FromHubStatus(request.HubStatus) is not Guid targetStatus)
         {
-            _logger.LogDebug("No GPay order status transition for Bank Hub status {Status}.", request.HubStatus);
+            logger.LogDebug("No GPay order status transition for Bank Hub status {Status}.", request.HubStatus);
             return;
         }
 
-        var query = _dbContext.Set<GpayOrderRow>();
+        var query = dbContext.Set<GpayOrderRow>();
         GpayOrderRow? order = null;
         if (request.GpayOrderId.HasValue)
         {
@@ -344,7 +305,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             }
             else if (referenceMatches.Count > 1)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Skipped GPay status sync because reference {Reference} matches multiple orders. Pass the GPay order id to resolve it safely.",
                     request.Reference);
                 return;
@@ -353,7 +314,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         if (order is null)
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Could not find GPay order to sync Bank Hub status. OrderId={OrderId}, Reference={Reference}, Status={Status}",
                 request.GpayOrderId,
                 request.Reference,
@@ -361,12 +322,12 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             return;
         }
 
-        if (order.StatusId == targetStatus.Value)
+        if (order.StatusId == targetStatus)
         {
-            if (targetStatus.Value == GpayOrderStatusIds.Completed)
+            if (targetStatus == GpayOrderStatusIds.Completed)
             {
                 await EnsureAcceptedPaymentStatementAsync(order, request, cancellationToken);
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                await dbContext.SaveChangesAsync(cancellationToken);
             }
 
             return;
@@ -374,7 +335,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         if (!GpayOrderStatusIds.IsOpen(order.StatusId))
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Ignored Bank Hub status {HubStatus} for GPay order {OrderNumber}; its current status {CurrentStatus} is already closed.",
                 request.HubStatus,
                 order.OrderNumber,
@@ -382,13 +343,13 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             return;
         }
 
-        if (targetStatus.Value == GpayOrderStatusIds.Completed)
+        if (targetStatus == GpayOrderStatusIds.Completed)
         {
             await EnsureAcceptedPaymentStatementAsync(order, request, cancellationToken);
         }
 
         var previousStatus = order.StatusId;
-        order.StatusId = targetStatus.Value;
+        order.StatusId = targetStatus;
 
         var historyNote = string.IsNullOrWhiteSpace(request.Note)
             ? $"Bank Hub payment status: {request.HubStatus}"
@@ -397,21 +358,21 @@ internal sealed class GpayOrderSync : IGpayOrderSync
         {
             Id = Guid.NewGuid(),
             OrderId = order.Id,
-            StatusId = targetStatus.Value,
+            StatusId = targetStatus,
             HistoryCategoryId = GpayOrderStatusIds.StatusChangeCategory,
             Date = DateTime.Now,
-            Note = historyNote.Length <= 200 ? historyNote : historyNote[..200],
+            Note = Truncate(historyNote, 200),
             UserId = order.UserId
         };
-        _dbContext.Set<GpayOrderHistoryRow>().Add(history);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.Set<GpayOrderHistoryRow>().Add(history);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Updated GPay order {OrderNumber} ({OrderId}) status from {PreviousStatus} to {NewStatus} after Bank Hub payment status {HubStatus}.",
             order.OrderNumber,
             order.Id,
             previousStatus,
-            targetStatus.Value,
+            targetStatus,
             request.HubStatus);
     }
 
@@ -427,19 +388,19 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         if (!order.FromAccountId.HasValue)
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Cannot create an accepted-payment statement for GPay order {OrderNumber}; it has no payer account.",
                 order.OrderNumber);
             return;
         }
 
-        var account = await _dbContext.Set<GpayAccountRow>()
+        var account = await dbContext.Set<GpayAccountRow>()
             .AsNoTracking()
             .Where(row => row.Id == order.FromAccountId.Value)
             .Select(row => new { row.Id, row.EntityId })
             .FirstOrDefaultAsync(cancellationToken);
 
-        var transactionCodeId = await _dbContext.Set<GpayTransactionCodeRow>()
+        var transactionCodeId = await dbContext.Set<GpayTransactionCodeRow>()
             .AsNoTracking()
             .Where(row => row.Name == PaymentAcceptedTransactionCode && row.Active == true)
             .Select(row => (int?)row.Id)
@@ -447,7 +408,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         if (account is null || !transactionCodeId.HasValue)
         {
-            _logger.LogError(
+            logger.LogError(
                 "Cannot create accepted-payment statement for GPay order {OrderNumber}; payer account or active transaction code '{TransactionCode}' was not found.",
                 order.OrderNumber,
                 PaymentAcceptedTransactionCode);
@@ -456,7 +417,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         var amount = request.Amount > 0m
             ? request.Amount
-            : await _dbContext.Set<GpayOrderItemRow>()
+            : await dbContext.Set<GpayOrderItemRow>()
                 .Where(item => item.OrderId == order.Id)
                 .SumAsync(
                     item => (item.Price ?? 0m) * (item.Quantity ?? 0m),
@@ -464,7 +425,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
         if (amount <= 0m)
         {
-            _logger.LogError(
+            logger.LogError(
                 "Cannot create accepted-payment statement for GPay order {OrderNumber}; its amount is not positive.",
                 order.OrderNumber);
             return;
@@ -476,7 +437,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             request.TransactionReference,
             order.OrderNumber.ToString())!;
 
-        var existingStatement = await _dbContext.Set<GpayEntityBankStatementRow>()
+        var existingStatement = await dbContext.Set<GpayEntityBankStatementRow>()
             .FirstOrDefaultAsync(
                 statement => statement.AccountId == account.Id
                              && statement.ReferenceNumber == reference
@@ -505,9 +466,9 @@ internal sealed class GpayOrderSync : IGpayOrderSync
                 Active = true
             };
 
-            _dbContext.Set<GpayEntityBankStatementRow>().Add(statement);
+            dbContext.Set<GpayEntityBankStatementRow>().Add(statement);
 
-            var auditUserId = order.UserId ?? await _dbContext.Set<GpayOrderHistoryRow>()
+            var auditUserId = order.UserId ?? await dbContext.Set<GpayOrderHistoryRow>()
                 .AsNoTracking()
                 .Where(history => history.OrderId == order.Id && history.UserId.HasValue)
                 .OrderByDescending(history => history.Date)
@@ -516,7 +477,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
 
             if (auditUserId.HasValue)
             {
-                _dbContext.Set<GpayEntityBankStatementLogRow>().Add(new GpayEntityBankStatementLogRow
+                dbContext.Set<GpayEntityBankStatementLogRow>().Add(new GpayEntityBankStatementLogRow
                 {
                     Id = Guid.NewGuid(),
                     EntityBankStatementId = statementId,
@@ -528,7 +489,7 @@ internal sealed class GpayOrderSync : IGpayOrderSync
             }
             else
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "GPay order {OrderNumber} has no user id; its EntityBankStatementLog entry cannot be created.",
                     order.OrderNumber);
             }

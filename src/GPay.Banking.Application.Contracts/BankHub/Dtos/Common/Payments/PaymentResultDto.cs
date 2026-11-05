@@ -40,7 +40,7 @@ public class PaymentResultDto
     /// <summary>Bank-native numeric/string status code when supplied.</summary>
     public string? BankStatusCode { get; set; }
 
-    /// <summary>Rail used: <c>RPP</c>, <c>IIP</c>, <c>PAAF</c>.</summary>
+    /// <summary>Bank-specific rail used (for example, Absa RPP / IIP / PAAF or FNB 3PIM).</summary>
     public string? PaymentRail { get; set; }
 
     /// <summary>Human-readable bank / connector description.</summary>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GPay.Banking.Services;
+using GPay.Banking.Services.Absa.Api.Models.Payment;
 
 namespace GPay.Banking.Services.Absa.Api.Mapping;
 
@@ -44,47 +45,36 @@ public static class AbsaPaymentCallbackParser
     /// </summary>
     public static AbsaParsedPaymentCallback? Parse(string json)
     {
-        if (string.IsNullOrWhiteSpace(json))
+        using var doc = JsonElementReader.ParseOrNull(json);
+        if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        try
+        var root = doc.RootElement;
+        var topLevelToken = JsonElementReader.ReadString(root, "Token");
+        if (JsonElementReader.TryGet(root, "Data", out var data) && data.ValueKind == JsonValueKind.Object)
         {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return null;
-            }
-
-            var root = doc.RootElement;
-            var topLevelToken = JsonElementReader.ReadString(root, "Token");
-            if (JsonElementReader.TryGet(root, "Data", out var data) && data.ValueKind == JsonValueKind.Object)
-            {
-                root = data;
-            }
-
-            var (statusCode, errorCode, errorMessage) = ReadStatus(root);
-            var (txRef, apiRef) = ReadReferences(root);
-
-            return new AbsaParsedPaymentCallback
-            {
-                Token = topLevelToken ?? JsonElementReader.ReadString(root, "Token"),
-                PaymentRail = JsonElementReader.ReadString(root, "Type"),
-                StatusCode = statusCode,
-                StatusLabel = AbsaPaymentStatuses.ToLabel(statusCode),
-                TransactionReference = txRef,
-                ApiReference = apiRef,
-                ErrorCode = errorCode,
-                ErrorMessage = errorMessage ?? (statusCode is 4 or 6 or 7
-                    ? AbsaPaymentStatuses.ToBankName(statusCode)
-                    : null)
-            };
+            root = data;
         }
-        catch (JsonException)
+
+        var (statusCode, errorCode, errorMessage) = ReadStatus(root);
+        var (txRef, apiRef) = ReadReferences(root);
+        var status = AbsaPaymentStatuses.Map(statusCode);
+
+        return new AbsaParsedPaymentCallback
         {
-            return null;
-        }
+            Token = topLevelToken ?? JsonElementReader.ReadString(root, "Token"),
+            PaymentRail = JsonElementReader.ReadString(root, "Type"),
+            StatusCode = statusCode,
+            StatusLabel = status.Label,
+            TransactionReference = txRef,
+            ApiReference = apiRef,
+            ErrorCode = errorCode,
+            ErrorMessage = errorMessage ?? (statusCode is 4 or 6 or 7
+                ? status.BankName
+                : null)
+        };
     }
 
     private static (int? StatusCode, string? ErrorCode, string? ErrorMessage) ReadStatus(JsonElement root)
@@ -144,25 +134,19 @@ public static class AbsaPaymentCallbackParser
                     continue;
                 }
 
-                var type = 0;
-                if (JsonElementReader.TryGet(item, "Correlation", out var correlation) || JsonElementReader.TryGet(item, "Type", out correlation))
-                {
-                    type = JsonElementReader.ReadInt(correlation) ?? 0;
-                }
-
-                var value = JsonElementReader.ReadString(item, "CorrelationId") ?? JsonElementReader.ReadString(item, "Value");
-                if (string.IsNullOrWhiteSpace(value))
+                var correlation = AbsaPaymentCorrelationConverter.ReadElement(item);
+                if (string.IsNullOrWhiteSpace(correlation.Value))
                 {
                     continue;
                 }
 
-                if (type == 4 && string.IsNullOrWhiteSpace(txRef))
+                if (correlation.Type == 4 && string.IsNullOrWhiteSpace(txRef))
                 {
-                    txRef = value;
+                    txRef = correlation.Value;
                 }
-                else if (type == 3 && string.IsNullOrWhiteSpace(apiRef))
+                else if (correlation.Type == 3 && string.IsNullOrWhiteSpace(apiRef))
                 {
-                    apiRef = value;
+                    apiRef = correlation.Value;
                 }
             }
         }

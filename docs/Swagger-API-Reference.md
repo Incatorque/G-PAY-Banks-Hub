@@ -44,10 +44,10 @@ ABP conventional controllers map AppServices to:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/app/instant-payment/initiate` | Submit PayShap/RTC payment; audits the bank API call and updates the linked GPay order. |
+| `POST` | `/api/app/instant-payment/initiate` | Submit an instant payment through the selected bank adapter; audits the bank API call and updates the linked GPay order. |
 | `POST` | `/api/app/instant-payment/get-status` | Live bank status; updates the linked GPay order when found. |
 
-**Rails:** `RPP` (PayShap, default), `IIP` (RTC), `PAAF`.
+**Absa payment rails:** `RPP` (PayShap, default), `IIP` (RTC), and `PAAF`. These identifiers apply to Absa only; other banks use their own payment rail identifiers.
 
 **Status values:** Submitted, Completed, Failed, Duplicate, Pending, Error.
 

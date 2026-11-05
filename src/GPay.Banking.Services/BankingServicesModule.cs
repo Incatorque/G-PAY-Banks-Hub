@@ -19,7 +19,6 @@ public class BankingServicesModule : AbpModule
         Configure<AbsaCapiOptions>(configuration.GetSection(AbsaCapiOptions.SectionName));
         Configure<BankPaymentIntakeOptions>(configuration.GetSection(BankPaymentIntakeOptions.SectionName));
         Configure<BankCallbackOptions>(configuration.GetSection(BankCallbackOptions.SectionName));
-        Configure<AvsBatchOptions>(configuration.GetSection(AvsBatchOptions.SectionName));
 
         context.Services.AddSingleton<IAbsaRequestSigner, AbsaRequestSigner>();
         context.Services.AddSingleton<IAbsaAvsMapper, AbsaAvsMapper>();

@@ -10,34 +10,17 @@ using GPay.Banking.Services.Absa.Api.Models.Payment;
 namespace GPay.Banking.Services.Absa.Api.Clients;
 
 /// <summary>
-/// HTTP implementation of Absa CAPI AVS per MIG – AVS API v1.
+/// HTTP client for Absa CAPI AVS, payments, and callback registration APIs.
 /// </summary>
-internal sealed class AbsaCapiClient : IAbsaCapiClient
+internal sealed class AbsaCapiClient(
+    HttpClient httpClient,
+    IAbsaSessionProvider sessionProvider,
+    IAbsaRequestSigner requestSigner,
+    IOptions<AbsaCapiOptions> options,
+    ILogger<AbsaCapiClient> logger) : IAbsaCapiClient
 {
-    private readonly HttpClient _httpClient;
-    private readonly IAbsaSessionProvider _sessionProvider;
-    private readonly IAbsaRequestSigner _requestSigner;
-    private readonly AbsaCapiOptions _options;
-    private readonly ILogger<AbsaCapiClient> _logger;
-    private readonly string _missingConfiguration;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AbsaCapiClient"/> class.
-    /// </summary>
-    public AbsaCapiClient(
-        HttpClient httpClient,
-        IAbsaSessionProvider sessionProvider,
-        IAbsaRequestSigner requestSigner,
-        IOptions<AbsaCapiOptions> options,
-        ILogger<AbsaCapiClient> logger)
-    {
-        _httpClient = httpClient;
-        _sessionProvider = sessionProvider;
-        _requestSigner = requestSigner;
-        _options = options.Value;
-        _logger = logger;
-        _missingConfiguration = string.Join(", ", GetMissingConfiguration(_options));
-    }
+    private readonly AbsaCapiOptions _options = options.Value;
+    private readonly string _missingConfiguration = string.Join(", ", GetMissingConfiguration(options.Value));
 
     private bool IsConfigured => _missingConfiguration.Length == 0;
 
@@ -95,10 +78,10 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
     {
         EnsureConfigured("live AVS", includeConfigurationHelp: true);
 
-        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        request.Session = await sessionProvider.GetSessionAsync(cancellationToken);
         var detailsJson = JsonSerializer.Serialize(request, AbsaJsonOptions.Default);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Absa ValidateBankDetails BankCode={BankCode} Account={Account} Branch={Branch} CorrelationId={CorrelationId}",
             request.BankCode,
             request.AccountNumber,
@@ -136,10 +119,10 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
     {
         EnsureConfigured("live payment", includeConfigurationHelp: true);
 
-        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        request.Session = await sessionProvider.GetSessionAsync(cancellationToken);
         var json = JsonSerializer.Serialize(request, AbsaJsonOptions.Default);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Absa PaymentInitiate Amount={Amount} Currency={Currency} Rail={Rail} TxRef={TxRef}",
             request.Economics.Amount,
             request.Economics.CurrencyCode,
@@ -162,10 +145,10 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
     {
         EnsureConfigured("live payment status");
 
-        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        request.Session = await sessionProvider.GetSessionAsync(cancellationToken);
         var json = JsonSerializer.Serialize(request, AbsaJsonOptions.Default);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Absa PaymentStatus Correlations={Count}",
             request.Correlations.Count);
 
@@ -185,10 +168,11 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
     {
         EnsureConfigured("payment callback register");
 
-        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
-        var json = JsonSerializer.Serialize(request, AbsaJsonOptions.Default);
-        var body = await SendAsync(_options.PaymentCallbackRegisterPath, HttpMethod.Post, json, cancellationToken);
-        return DeserializePaymentCallbackRegister(body);
+        request.Session = await sessionProvider.GetSessionAsync(cancellationToken);
+        return await SendPaymentCallbackRegistrationAsync(
+            request,
+            _options.PaymentCallbackRegisterPath,
+            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -198,9 +182,20 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
     {
         EnsureConfigured("payment callback unregister");
 
-        request.Session = await _sessionProvider.GetSessionAsync(cancellationToken);
+        request.Session = await sessionProvider.GetSessionAsync(cancellationToken);
+        return await SendPaymentCallbackRegistrationAsync(
+            request,
+            _options.PaymentCallbackUnregisterPath,
+            cancellationToken);
+    }
+
+    private async Task<AbsaPaymentCallbackRegisterResponse> SendPaymentCallbackRegistrationAsync<TRequest>(
+        TRequest request,
+        string path,
+        CancellationToken cancellationToken)
+    {
         var json = JsonSerializer.Serialize(request, AbsaJsonOptions.Default);
-        var body = await SendAsync(_options.PaymentCallbackUnregisterPath, HttpMethod.Post, json, cancellationToken);
+        var body = await SendAsync(path, HttpMethod.Post, json, cancellationToken);
         return DeserializePaymentCallbackRegister(body);
     }
 
@@ -235,7 +230,7 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var session = await _sessionProvider.GetSessionAsync(cancellationToken);
+            var session = await sessionProvider.GetSessionAsync(cancellationToken);
             var referenceRequest = new AbsaValidateBankReferenceRequest
             {
                 ReferenceNumber = referenceNumber,
@@ -244,7 +239,7 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
             };
             var json = JsonSerializer.Serialize(referenceRequest, AbsaJsonOptions.Default);
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Absa ValidateBankReference attempt={Attempt}/{Max} Ref={Ref} CorrelationId={CorrelationId}",
                 attempt,
                 maxAttempts,
@@ -298,12 +293,12 @@ internal sealed class AbsaCapiClient : IAbsaCapiClient
             request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
         }
 
-        _requestSigner.ApplyHeaders(request, jsonBody);
+        requestSigner.ApplyHeaders(request, jsonBody);
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Absa CAPI {Method} {Uri} => {Status}",
             method,
             uri,

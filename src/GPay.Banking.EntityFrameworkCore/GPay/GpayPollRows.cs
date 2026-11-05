@@ -1,6 +1,6 @@
 namespace GPay.Banking.EntityFrameworkCore.GPay;
 
-// Small EF projections for the GPay tables used by the PayShap poller.
+// Small EF projections for the GPay tables used by Bank Hub polling.
 // They intentionally have no navigations to avoid loading GPay's legacy model graph.
 internal sealed class GpayOrderRow
 {

@@ -11,7 +11,7 @@ public sealed class AbsaErrorMapper : IBankErrorMapper
     public ApiError Map(string? bankErrorCode, string? bankErrorMessage)
     {
         var info = AbsaErrorCatalog.Resolve(bankErrorCode, bankErrorMessage);
-        var code = string.IsNullOrWhiteSpace(info.Code) || info.Code == "UNKNOWN"
+        var code = info.Code == "UNKNOWN"
             ? "ABSA_UNKNOWN"
             : $"ABSA_{info.Code}";
 

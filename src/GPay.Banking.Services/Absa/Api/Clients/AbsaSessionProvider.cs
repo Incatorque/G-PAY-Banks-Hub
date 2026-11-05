@@ -6,12 +6,13 @@ namespace GPay.Banking.Services.Absa.Api.Clients;
 /// <summary>
 /// Username/password session provider with in-memory cache (~25 minutes).
 /// </summary>
-internal sealed class AbsaSessionProvider : IAbsaSessionProvider
+internal sealed class AbsaSessionProvider(
+    HttpClient httpClient,
+    IAbsaRequestSigner requestSigner,
+    IOptions<AbsaCapiOptions> options,
+    ILogger<AbsaSessionProvider> logger) : IAbsaSessionProvider
 {
-    private readonly HttpClient _httpClient;
-    private readonly IAbsaRequestSigner _requestSigner;
-    private readonly AbsaCapiOptions _options;
-    private readonly ILogger<AbsaSessionProvider> _logger;
+    private readonly AbsaCapiOptions _options = options.Value;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private string? _session;
@@ -19,17 +20,6 @@ internal sealed class AbsaSessionProvider : IAbsaSessionProvider
 
     private string? ValidSession =>
         string.IsNullOrWhiteSpace(_session) || DateTimeOffset.UtcNow >= _expiresAt ? null : _session;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AbsaSessionProvider"/> class.
-    /// </summary>
-    public AbsaSessionProvider(HttpClient httpClient, IAbsaRequestSigner requestSigner, IOptions<AbsaCapiOptions> options, ILogger<AbsaSessionProvider> logger)
-    {
-        _httpClient = httpClient;
-        _requestSigner = requestSigner;
-        _options = options.Value;
-        _logger = logger;
-    }
 
     /// <inheritdoc />
     public async Task<string> GetSessionAsync(CancellationToken cancellationToken = default)
@@ -51,8 +41,7 @@ internal sealed class AbsaSessionProvider : IAbsaSessionProvider
                 !AbsaCapiOptions.IsConfiguredCredential(_options.Password))
             {
                 throw new InvalidOperationException(
-                    "AbsaCapi Username/Password are not configured. Set AbsaCapi__Username / AbsaCapi__Password " +
-                    "via appsettings.Absa.json, appsettings.Local.json, user-secrets, or GPAY_AbsaCapi__* environment variables.");
+                    "AbsaCapi Username/Password are not configured.");
             }
 
             var uri = AbsaUriBuilder.Build(_options.BaseUrl, _options.AuthenticatePath);
@@ -68,17 +57,17 @@ internal sealed class AbsaSessionProvider : IAbsaSessionProvider
                 Content = new StringContent(payload, Encoding.UTF8, "application/json")
             };
 
-            _requestSigner.ApplyHeaders(request, payload);
+            requestSigner.ApplyHeaders(request, payload);
 
-            _logger.LogInformation("Absa CAPI authenticate {Uri}", uri);
+            logger.LogInformation("Absa CAPI authenticate {Uri}", uri);
 
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Absa authenticate failed: {Status} {Body}", (int)response.StatusCode, body);
+                logger.LogError("Absa authenticate failed: {Status} {Body}", (int)response.StatusCode, body);
                 throw new InvalidOperationException(
                     $"Absa authenticate failed with status {(int)response.StatusCode}: {body}");
             }
@@ -97,7 +86,7 @@ internal sealed class AbsaSessionProvider : IAbsaSessionProvider
 
             _expiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, _options.SessionCacheSeconds));
 
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Absa session acquired CorrelationId={CorrelationId} ExpiresAt={ExpiresAt}",
                 auth.CorrelationId,
                 _expiresAt);

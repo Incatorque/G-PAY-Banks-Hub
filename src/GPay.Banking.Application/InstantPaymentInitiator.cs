@@ -17,28 +17,13 @@ public interface IInstantPaymentInitiator
         CancellationToken cancellationToken = default);
 }
 
-internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
+internal sealed class InstantPaymentInitiator(
+    IBankRouterService bankRouter,
+    IGpayOrderSync gpayOrderSync,
+    IGpayPaymentNotificationQueue notifications,
+    IAbsaPaymentSchedule absaPaymentSchedule,
+    ILogger<InstantPaymentInitiator> logger) : IInstantPaymentInitiator
 {
-    private readonly IBankRouterService _bankRouter;
-    private readonly IGpayOrderSync _gpayOrderSync;
-    private readonly IGpayPaymentNotificationQueue _notifications;
-    private readonly IAbsaPaymentSchedule _absaPaymentSchedule;
-    private readonly ILogger<InstantPaymentInitiator> _logger;
-
-    public InstantPaymentInitiator(
-        IBankRouterService bankRouter,
-        IGpayOrderSync gpayOrderSync,
-        IGpayPaymentNotificationQueue notifications,
-        IAbsaPaymentSchedule absaPaymentSchedule,
-        ILogger<InstantPaymentInitiator> logger)
-    {
-        _bankRouter = bankRouter;
-        _gpayOrderSync = gpayOrderSync;
-        _notifications = notifications;
-        _absaPaymentSchedule = absaPaymentSchedule;
-        _logger = logger;
-    }
-
     public async Task<PaymentResultDto> InitiateAsync(
         InitiatePaymentRequestDto input,
         Guid? gpayOrderId = null,
@@ -47,9 +32,7 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
     {
         var bankStorageCode = input.Bank ?? string.Empty;
         var notificationOrderNumber = orderNumber ?? gpayOrderId?.ToString("D") ?? input.Reference;
-        var notificationRail = string.IsNullOrWhiteSpace(input.PaymentRail)
-            ? "RPP"
-            : input.PaymentRail.Trim().ToUpperInvariant();
+        var notificationRail = input.PaymentRail?.Trim().ToUpperInvariant() ?? string.Empty;
         var correlationId = Guid.NewGuid().ToString("N");
         BankCode bank;
         var domainRequest = new InstantPaymentRequest
@@ -62,7 +45,7 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
             Currency = input.Currency,
             Reference = input.Reference,
             BeneficiaryName = input.BeneficiaryName,
-            PaymentRail = input.PaymentRail,
+            PaymentRail = input.PaymentRail ?? string.Empty,
             SubmittingEntityName = input.SubmittingEntityName,
             SubsidiaryEntityName = input.SubsidiaryEntityName,
             AuthorisationIndicator = input.AuthorisationIndicator,
@@ -92,15 +75,11 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
 
             bank = BankCodeParser.Parse(input.Bank);
             bankStorageCode = bank.ToString();
+            notificationRail = PaymentRailRouting.ForBankRequest(bank, input.PaymentRail);
 
-            if (bank != BankCode.Absa && string.IsNullOrWhiteSpace(input.PaymentRail))
+            if (bank == BankCode.Absa && string.Equals(notificationRail, PaymentRailRouting.AbsaPaaf, StringComparison.Ordinal))
             {
-                notificationRail = "-";
-            }
-
-            if (bank == BankCode.Absa && string.Equals(notificationRail, "PAAF", StringComparison.Ordinal))
-            {
-                var deferralReason = await _absaPaymentSchedule.GetPaafDeferralReasonAsync(
+                var deferralReason = await absaPaymentSchedule.GetPaafDeferralReasonAsync(
                     input.Amount,
                     input.BeneficiaryBank,
                     cancellationToken);
@@ -110,19 +89,18 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
                 }
             }
 
-            var result = await _bankRouter.SubmitPaymentAsync(bank, domainRequest, correlationId);
+            var result = await bankRouter.SubmitPaymentAsync(bank, domainRequest, correlationId);
             dto = BankPaymentResultMapper.From(result, correlationId);
         }
         catch (PaymentDeferredException)
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
+            await notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
             {
                 Bank = bankStorageCode,
-                Route = "API",
                 Rail = notificationRail,
                 OrderNumber = notificationOrderNumber,
                 Amount = input.Amount,
@@ -130,7 +108,7 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
                 FromAccountNumber = input.FromAccountNumber,
                 ToAccountNumber = input.ToAccountNumber,
                 Reference = input.Reference,
-                Status = "Error",
+                Status = PaymentStatuses.Error,
                 IsError = true,
                 ErrorCode = "PAYMENT_INITIATION_EXCEPTION",
                 ErrorMessage = ex.Message
@@ -139,10 +117,10 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
             throw;
         }
 
-        await _notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
+        var statusIsFailure = PaymentStatusClassifier.IsFailure(dto.Status);
+        await notifications.EnqueueAsync(new GpayPaymentInitiatedNotification
         {
             Bank = bankStorageCode,
-            Route = "API",
             Rail = notificationRail,
             OrderNumber = notificationOrderNumber,
             Amount = dto.Amount ?? input.Amount,
@@ -150,25 +128,25 @@ internal sealed class InstantPaymentInitiator : IInstantPaymentInitiator
             FromAccountNumber = input.FromAccountNumber,
             ToAccountNumber = input.ToAccountNumber,
             Reference = dto.Reference ?? input.Reference,
-            Status = dto.Status ?? (dto.Success ? "Received / Processing" : "Error"),
-            IsError = !dto.Success,
-            ErrorCode = dto.ErrorCode,
+            Status = dto.Status ?? (dto.Success ? "Received / Processing" : PaymentStatuses.Error),
+            IsError = !dto.Success || statusIsFailure,
+            ErrorCode = dto.ErrorCode ?? (statusIsFailure ? dto.Status : null),
             ErrorMessage = dto.ErrorMessage ?? dto.ResultDescription
         });
 
-        await _gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
+        await gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
         {
             GpayOrderId = gpayOrderId,
             Reference = dto.Reference ?? input.Reference,
             TransactionReference = dto.TransactionReference,
             SourceStatementRef = dto.SourceStatementRef,
             TargetStatementRef = dto.TargetStatementRef,
-            HubStatus = dto.Status ?? (dto.Success ? "Submitted" : "Error"),
+            HubStatus = dto.Status ?? (dto.Success ? "Submitted" : PaymentStatuses.Error),
             Note = dto.ResultDescription ?? dto.ErrorMessage,
             Amount = dto.Amount ?? input.Amount
         });
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Payment initiation at {Bank} completed with status {Status} " +
             "(success={Success}, correlation={CorrelationId}, GPayOrderId={GpayOrderId}).",
             bankStorageCode,

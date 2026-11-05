@@ -81,9 +81,9 @@ public class AbsaPaymentStatusMappingTests
     [InlineData(6, "Failed")]
     [InlineData(7, "Failed")]
     [InlineData(8, "Duplicate")]
-    public void ToStatusLabel_MapsMigCodes(int code, string expected)
+    public void PaymentStatuses_MapsMigCodes(int code, string expected)
     {
-        new AbsaPaymentMapper().ToStatusLabel(code, hasErrors: false).Should().Be(expected);
+        AbsaPaymentStatuses.Map(code).Label.Should().Be(expected);
     }
 
     [Fact]

@@ -21,30 +21,16 @@ namespace GPay.Banking;
 /// Routes under <c>/api/app/account-verification/*</c>.
 /// </remarks>
 [Authorize]
-public class AccountVerificationAppService : ApplicationService, IAccountVerificationAppService
+public class AccountVerificationAppService(
+    IBankCapabilityResolver resolver,
+    IRepository<BankHubAvsBatch, Guid> batchRepository,
+    IRepository<BankHubAvsRecord, Guid> recordRepository,
+    IBackgroundJobManager backgroundJobs,
+    IOptions<AvsBatchOptions> batchOptions,
+    IGuidGenerator guidGenerator)
+    : ApplicationService, IAccountVerificationAppService
 {
-    private readonly IBankCapabilityResolver _resolver;
-    private readonly IRepository<BankHubAvsBatch, Guid> _batchRepository;
-    private readonly IRepository<BankHubAvsRecord, Guid> _recordRepository;
-    private readonly IBackgroundJobManager _backgroundJobs;
-    private readonly AvsBatchOptions _batchOptions;
-    private readonly IGuidGenerator _guidGenerator;
-
-    public AccountVerificationAppService(
-        IBankCapabilityResolver resolver,
-        IRepository<BankHubAvsBatch, Guid> batchRepository,
-        IRepository<BankHubAvsRecord, Guid> recordRepository,
-        IBackgroundJobManager backgroundJobs,
-        IOptions<AvsBatchOptions> batchOptions,
-        IGuidGenerator guidGenerator)
-    {
-        _resolver = resolver;
-        _batchRepository = batchRepository;
-        _recordRepository = recordRepository;
-        _backgroundJobs = backgroundJobs;
-        _batchOptions = batchOptions.Value;
-        _guidGenerator = guidGenerator;
-    }
+    private readonly AvsBatchOptions _batchOptions = batchOptions.Value;
 
     /// <summary>
     /// Verifies a single bank account (AVS) via the bank named in the request body.
@@ -57,7 +43,7 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         var correlationId = Guid.NewGuid().ToString("N");
         var bank = BankCodeParser.Parse(input.Bank);
         var domainRequest = AccountVerificationRequestMapper.From(input, bank);
-        var service = _resolver.GetAccountVerification(bank);
+        var service = resolver.GetAccountVerification(bank);
         var result = await service.VerifyAsync(domainRequest, correlationId);
 
         var dto = MapResult(result, correlationId);
@@ -71,7 +57,6 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             BranchCode = input.BranchCode,
             IdentityNumber = input.IdentityNumber,
             AccountHolderName = input.AccountHolderName ?? input.LastName,
-            SuccessRate = dto.SuccessRate,
             RequestBodyJson = JsonSerializer.Serialize(domainRequest),
             ResponseBodyJson = JsonSerializer.Serialize(result),
             ErrorMessage = dto.ErrorMessage,
@@ -82,10 +67,10 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         }
         else
         {
-            record.Status = dto.IsVerified ? "Verified" : result.Success ? "NotVerified" : "Error";
+            record.Status = AvsStatuses.Error;
         }
 
-        await _recordRepository.InsertAsync(record, autoSave: true);
+        await recordRepository.InsertAsync(record, autoSave: true);
         dto.RecordId = record.Id;
         return dto;
     }
@@ -110,8 +95,11 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             throw new UserFriendlyException($"Batch exceeds maximum of {_batchOptions.MaxItems:N0} items.");
         }
 
-        var batchId = _guidGenerator.Create();
-        var banks = input.Items.Select(i => string.IsNullOrWhiteSpace(i.Request.Bank) ? "Absa" : i.Request.Bank)
+        var batchId = guidGenerator.Create();
+        var items = input.Items
+            .Select(item => (Item: item, Bank: ResolveBank(item.Request.Bank)))
+            .ToList();
+        var banks = items.Select(item => item.Bank)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var batch = new BankHubAvsBatch
@@ -119,48 +107,43 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             FileName = input.FileName ?? $"api-batch-{batchId:N}.json",
             TotalRows = input.Items.Count,
             PendingCount = input.Items.Count,
-            ProcessedCount = 0,
-            VerifiedCount = 0,
-            FailedCount = 0,
             SegmentCount = 1,
             BankCode = banks.Count == 1 ? banks[0] : "Mixed",
-            Status = "Queued",
             ExternalBatchId = batchId,
             ApiClientId = input.ApiClientId
         };
         Volo.Abp.Domain.Entities.EntityHelper.TrySetId(batch, () => batchId);
 
-        await _batchRepository.InsertAsync(batch, autoSave: true);
+        await batchRepository.InsertAsync(batch, autoSave: true);
 
-        var records = input.Items.OrderBy(item => item.RowNumber)
+        var records = items.OrderBy(item => item.Item.RowNumber)
             .Select(item =>
             {
-                var request = item.Request;
+                var request = item.Item.Request;
                 return new BankHubAvsRecord
                 {
                     BatchId = batchId,
                     ApiClientId = input.ApiClientId,
-                    RowNumber = item.RowNumber,
-                    BankCode = string.IsNullOrWhiteSpace(request.Bank) ? "Absa" : request.Bank,
+                    RowNumber = item.Item.RowNumber,
+                    BankCode = item.Bank,
                     Reference = request.Reference,
                     AccountNumber = request.AccountNumber,
                     BranchCode = request.BranchCode,
                     IdentityNumber = request.IdentityNumber,
                     AccountHolderName = request.AccountHolderName ?? request.LastName,
-                    ResultCode = "Queued",
-                    Status = "Queued",
+                    ResultCode = AvsStatuses.Queued,
                     RequestBodyJson = JsonSerializer.Serialize(request)
                 };
             })
             .ToList();
-        await _recordRepository.InsertManyAsync(records, autoSave: false);
+        await recordRepository.InsertManyAsync(records, autoSave: false);
 
         await CurrentUnitOfWork!.SaveChangesAsync();
 
-        await _backgroundJobs.EnqueueAsync(new AvsBatchProcessJobArgs { BatchId = batchId });
+        await backgroundJobs.EnqueueAsync(new AvsBatchProcessJobArgs { BatchId = batchId });
 
-        batch.Status = "Processing";
-        await _batchRepository.UpdateAsync(batch, autoSave: true);
+        batch.Status = AvsStatuses.Processing;
+        await batchRepository.UpdateAsync(batch, autoSave: true);
 
         return new UploadAvsBatchResultDto
         {
@@ -177,7 +160,7 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// <param name="id">Batch id returned by submit-batch.</param>
     public async Task<BankHubAvsBatchDto> GetBatchAsync(Guid id)
     {
-        var batch = await _batchRepository.GetAsync(id);
+        var batch = await batchRepository.GetAsync(id);
         var percent = batch.TotalRows == 0 ? 100d : Math.Round(100d * batch.ProcessedCount / batch.TotalRows, 2);
         return new BankHubAvsBatchDto
         {
@@ -203,7 +186,7 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
     /// <param name="batchId">Batch id.</param>
     public async Task<List<BankHubAvsRecordDto>> GetBatchRecordsAsync(Guid batchId)
     {
-        var records = await _recordRepository.GetListAsync(x => x.BatchId == batchId);
+        var records = await recordRepository.GetListAsync(x => x.BatchId == batchId);
         return records.OrderBy(x => x.RowNumber).Select(r => new BankHubAvsRecordDto
         {
             Id = r.Id,
@@ -228,7 +211,6 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
         {
             return new AccountVerificationResultDto
             {
-                Success = false,
                 CorrelationId = correlationId,
                 ResultCode = result.Error?.Code,
                 ResultDescription = result.Error?.Message,
@@ -263,26 +245,14 @@ public class AccountVerificationAppService : ApplicationService, IAccountVerific
             Reference = d.Reference,
             MatchingCriteria = d.MatchingCriteria,
             CorrelationId = correlationId,
-            SuccessRate = CalculateSuccessRate(d),
+            SuccessRate = BankHubAvsRecordMapper.CalculateSuccessRate(d),
             AbsaError = AbsaErrorResponses.FromCode(d.BankResultCode, d.ResultDescription) is { Known: true } error
                 ? error
                 : null
         };
     }
 
-    private static decimal CalculateSuccessRate(AccountVerificationResponse data)
-    {
-        static bool? Flag(string? v) => v switch
-        {
-            "Y" or "Yes" => true,
-            "N" or "No" => false,
-            _ => null
-        };
-
-        var checks = new bool?[] { data.AccountFound, data.AccountOpen, Flag(data.IdentityMatch), Flag(data.NameMatch), Flag(data.InitialsMatch) };
-        var known = checks.Count(c => c.HasValue);
-        if (known == 0) return data.IsVerified ? 100m : 0m;
-        return Math.Round(100m * checks.Count(c => c == true) / known, 1);
-    }
+    private static string ResolveBank(string? bank) =>
+        string.IsNullOrWhiteSpace(bank) ? BankCode.Absa.ToString() : bank;
 
 }

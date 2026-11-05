@@ -9,17 +9,9 @@ namespace GPay.Banking.Services.Absa.Api.Mapping;
 /// <summary>
 /// Default Absa AVS mapper.
 /// </summary>
-public sealed class AbsaAvsMapper : IAbsaAvsMapper
+public sealed class AbsaAvsMapper(IOptions<AbsaCapiOptions> options) : IAbsaAvsMapper
 {
-    private readonly AbsaCapiOptions _options;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AbsaAvsMapper"/> class.
-    /// </summary>
-    public AbsaAvsMapper(IOptions<AbsaCapiOptions> options)
-    {
-        _options = options.Value;
-    }
+    private readonly AbsaCapiOptions _options = options.Value;
 
     /// <summary>
     /// Parameterless constructor for unit tests (uses Absa defaults).
@@ -276,17 +268,23 @@ public sealed class AbsaAvsMapper : IAbsaAvsMapper
             return null;
         }
 
-        return response.ValueList
-            .Where(v => !string.IsNullOrWhiteSpace(v.Key))
-            .GroupBy(v => v.Key!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Last().Value ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        var criteria = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in response.ValueList)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Key))
+            {
+                criteria[item.Key] = item.Value ?? string.Empty;
+            }
+        }
+
+        return criteria;
     }
 
     private static bool? ToTriState(string? value) =>
-        value?.Trim().ToUpperInvariant() switch
+        ToYnU(value) switch
         {
-            "YES" or "Y" or "TRUE" => true,
-            "NO" or "N" or "FALSE" => false,
+            "Y" => true,
+            "N" => false,
             _ => null
         };
 

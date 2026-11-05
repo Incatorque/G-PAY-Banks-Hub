@@ -15,29 +15,20 @@ namespace GPay.Banking;
 /// Channel callback URL administration AppService (ABP conventional Swagger endpoints).
 /// </summary>
 [Authorize]
-public class CallbackRegistrationAppService : ApplicationService, ICallbackRegistrationAppService
+public class CallbackRegistrationAppService(
+    IBankCapabilityResolver resolver,
+    IOptions<AbsaCapiOptions> absaOptions,
+    IOptions<BankCallbackOptions> callbackOptions,
+    IHttpContextAccessor httpContextAccessor)
+    : ApplicationService, ICallbackRegistrationAppService
 {
     private delegate Task<ApiResult<PaymentCallbackRegistrationResponse>> RegistrationOperation(
         IPaymentCallbackRegistrationService service,
         PaymentCallbackRegistrationRequest request,
         string correlationId);
 
-    private readonly IBankCapabilityResolver _resolver;
-    private readonly AbsaCapiOptions _absaOptions;
-    private readonly BankCallbackOptions _callbackOptions;
-    private readonly IHttpContextAccessor _httpContextAccessor;
-
-    public CallbackRegistrationAppService(
-        IBankCapabilityResolver resolver,
-        IOptions<AbsaCapiOptions> absaOptions,
-        IOptions<BankCallbackOptions> callbackOptions,
-        IHttpContextAccessor httpContextAccessor)
-    {
-        _resolver = resolver;
-        _absaOptions = absaOptions.Value;
-        _callbackOptions = callbackOptions.Value;
-        _httpContextAccessor = httpContextAccessor;
-    }
+    private readonly AbsaCapiOptions _absaOptions = absaOptions.Value;
+    private readonly BankCallbackOptions _callbackOptions = callbackOptions.Value;
 
     /// <inheritdoc />
     public Task<PaymentCallbackDefaultsDto> GetDefaultsAsync(string bank = "Absa")
@@ -77,7 +68,7 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
         var bank = BankCodeParser.Parse(input.Bank);
         var correlationId = Guid.NewGuid().ToString("N");
         var request = ResolveRegistration(input);
-        var service = _resolver.GetPaymentCallbackRegistration(bank);
+        var service = resolver.GetPaymentCallbackRegistration(bank);
         var result = await operation(service, request, correlationId);
         return Map(result, correlationId);
     }
@@ -91,7 +82,7 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
                   ?? throw new UserFriendlyException(
                       "Uri is required (or set AbsaCapi:PaymentCallbackUri).");
 
-        var service = _resolver.GetPaymentCallbackRegistration(bank);
+        var service = resolver.GetPaymentCallbackRegistration(bank);
         var result = await service.UnregisterAsync(
             new PaymentCallbackUnregisterRequest { Uri = uri },
             correlationId);
@@ -132,7 +123,7 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
 
     private string? BuildRecommendedInboundUri()
     {
-        var http = _httpContextAccessor.HttpContext?.Request;
+        var http = httpContextAccessor.HttpContext?.Request;
         if (http is null)
         {
             return null;
@@ -157,9 +148,8 @@ public class CallbackRegistrationAppService : ApplicationService, ICallbackRegis
         {
             return new PaymentCallbackRegistrationResultDto
             {
-                Success = false,
                 CorrelationId = correlationId,
-                Status = "Error",
+                Status = PaymentStatuses.Error,
                 ErrorCode = result.Error?.Code,
                 ErrorMessage = result.Error?.Message,
                 AbsaError = AbsaErrorResponses.From(result.Error)

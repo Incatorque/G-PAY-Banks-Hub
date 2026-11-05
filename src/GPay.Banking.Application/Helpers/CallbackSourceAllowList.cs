@@ -97,6 +97,11 @@ internal static class CallbackSourceAllowList
         string? reverseHost = null;
         foreach (var (key, bank) in options.Banks)
         {
+            if (bank is null)
+            {
+                continue;
+            }
+
             var ips = ConfiguredEntries(bank.AllowedSourceIps);
             if (ips.Count > 0 && IpMatches(sourceIp, ips))
             {
@@ -167,53 +172,8 @@ internal static class CallbackSourceAllowList
         return false;
     }
 
-    private static bool CidrContains(string cidr, IPAddress address)
-    {
-        var parts = cidr.Split('/', 2);
-        if (parts.Length != 2 ||
-            !IPAddress.TryParse(parts[0], out var network) ||
-            !int.TryParse(parts[1], out var prefixLength))
-        {
-            return false;
-        }
-
-        if (network.AddressFamily != address.AddressFamily)
-        {
-            return false;
-        }
-
-        var networkBytes = network.GetAddressBytes();
-        var addressBytes = address.GetAddressBytes();
-        if (networkBytes.Length != addressBytes.Length)
-        {
-            return false;
-        }
-
-        var bitLength = networkBytes.Length * 8;
-        if (prefixLength < 0 || prefixLength > bitLength)
-        {
-            return false;
-        }
-
-        var fullBytes = prefixLength / 8;
-        var remainingBits = prefixLength % 8;
-
-        for (var i = 0; i < fullBytes; i++)
-        {
-            if (networkBytes[i] != addressBytes[i])
-            {
-                return false;
-            }
-        }
-
-        if (remainingBits == 0)
-        {
-            return true;
-        }
-
-        var mask = (byte)(0xFF << (8 - remainingBits));
-        return (networkBytes[fullBytes] & mask) == (addressBytes[fullBytes] & mask);
-    }
+    private static bool CidrContains(string cidr, IPAddress address) =>
+        IPNetwork.TryParse(cidr, out var network) && network.Contains(address);
 
     private static async Task<string?> TryReverseDnsAsync(string ip, CancellationToken cancellationToken)
     {
@@ -222,11 +182,7 @@ internal static class CallbackSourceAllowList
             var entry = await Dns.GetHostEntryAsync(ip, cancellationToken);
             return entry.HostName;
         }
-        catch (SocketException)
-        {
-            return null;
-        }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is SocketException or ArgumentException)
         {
             return null;
         }

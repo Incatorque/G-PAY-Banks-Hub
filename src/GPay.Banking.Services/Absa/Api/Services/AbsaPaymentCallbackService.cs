@@ -9,21 +9,12 @@ namespace GPay.Banking.Services.Absa.Api.Services;
 /// <summary>
 /// Absa-specific payment callback validation and payload mapping.
 /// </summary>
-internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
+internal sealed class AbsaPaymentCallbackService(
+    IOptions<BankCallbackOptions> options,
+    ILogger<AbsaPaymentCallbackService> logger,
+    IBankApiCallAuditor auditor) : IPaymentCallbackService
 {
-    private readonly BankCallbackOptions _options;
-    private readonly ILogger<AbsaPaymentCallbackService> _logger;
-    private readonly IBankApiCallAuditor _auditor;
-
-    public AbsaPaymentCallbackService(
-        IOptions<BankCallbackOptions> options,
-        ILogger<AbsaPaymentCallbackService> logger,
-        IBankApiCallAuditor auditor)
-    {
-        _options = options.Value;
-        _logger = logger;
-        _auditor = auditor;
-    }
+    private readonly BankCallbackOptions _options = options.Value;
 
     public BankCode Bank => BankCode.Absa;
 
@@ -37,7 +28,7 @@ internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         var payload = AbsaPaymentCallbackParser.Parse(inbound.RawJson);
         if (payload is null)
         {
-            _logger.LogWarning("Absa payment callback JSON deserialize failed");
+            logger.LogWarning("Absa payment callback JSON deserialize failed");
             return await AuditAndReturnAsync(
                 inbound,
                 null,
@@ -52,7 +43,7 @@ internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         if (string.IsNullOrWhiteSpace(expectedToken) ||
             !string.Equals(token, expectedToken, StringComparison.Ordinal))
         {
-            _logger.LogWarning("Absa payment callback rejected: invalid token");
+            logger.LogWarning("Absa payment callback rejected: invalid token");
             return await AuditAndReturnAsync(
                 inbound,
                 payload,
@@ -64,7 +55,7 @@ internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         var txRef = payload.TransactionReference;
         var status = payload.StatusLabel;
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Absa payment callback Type={Type} Status={Status} BankStatus={BankStatus} TxRef={TxRef}",
             payload.PaymentRail,
             status,
@@ -90,20 +81,10 @@ internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
         PaymentCallbackResult result,
         Stopwatch started)
     {
-        await AuditAsync(inbound, payload, result, started);
-        return result;
-    }
-
-    private Task AuditAsync(
-        PaymentCallbackInbound inbound,
-        AbsaParsedPaymentCallback? payload,
-        PaymentCallbackResult result,
-        Stopwatch started)
-    {
         started.Stop();
-        return AbsaCallAudit.WriteAsync(
-            _auditor,
-            _logger,
+        await AbsaCallAudit.WriteAsync(
+            auditor,
+            logger,
             new BankApiCallAuditEntry
             {
                 Direction = "Inbound",
@@ -117,6 +98,8 @@ internal sealed class AbsaPaymentCallbackService : IPaymentCallbackService
                 Success = result.Success,
                 ErrorCode = payload?.ErrorCode ?? payload?.StatusCode?.ToString()
             });
+
+        return result;
     }
 
 }

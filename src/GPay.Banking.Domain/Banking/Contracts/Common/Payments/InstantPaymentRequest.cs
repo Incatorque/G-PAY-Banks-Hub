@@ -1,10 +1,8 @@
 namespace GPay.Banking.Domain.Dtos;
 
 
-using GPay.Banking;
-
 /// <summary>
-/// GPay instant payment (PayShap / RTC) request.
+/// Bank-agnostic GPay instant payment request.
 /// </summary>
 public sealed record InstantPaymentRequest
 {
@@ -47,7 +45,8 @@ public sealed record InstantPaymentRequest
     public string? BeneficiaryName { get; init; }
 
     /// <summary>
-    /// Payment rail / Economics.Indicator. RPP = PayShap, IIP = RTC, PAAF = other. Default RPP.
+    /// Bank-specific payment rail / Economics.Indicator. Absa uses RPP (PayShap), IIP (RTC), or PAAF;
+    /// other banks use their own rail identifiers. Absa defaults to RPP.
     /// </summary>
     public string PaymentRail { get; init; } = string.Empty;
 

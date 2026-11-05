@@ -5,10 +5,7 @@ namespace GPay.Banking.Helpers;
 
 internal static class AccountVerificationRequestMapper
 {
-    public static AccountVerificationRequest From(
-        VerifyAccountRequestDto? input,
-        BankCode bank,
-        BankHubAvsRecord? fallback = null) => new()
+    public static AccountVerificationRequest From(VerifyAccountRequestDto? input, BankCode bank, BankHubAvsRecord? fallback = null) => new()
     {
         Bank = bank,
         AccountNumber = input?.AccountNumber ?? fallback?.AccountNumber ?? string.Empty,
