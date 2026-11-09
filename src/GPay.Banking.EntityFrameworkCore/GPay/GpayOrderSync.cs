@@ -226,6 +226,111 @@ internal sealed class GpayOrderSync(
         return candidates;
     }
 
+    public async Task<GpayPaymentQueuePage> GetQueuedAndSubmittedOrdersAsync(
+        int skip,
+        int take,
+        string? bank,
+        string? status,
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        var query =
+            from order in dbContext.Set<GpayOrderRow>().AsNoTracking()
+            join orderStatus in dbContext.Set<GpayOrderStatusRow>().AsNoTracking()
+                on order.StatusId equals orderStatus.Id
+            join payer in dbContext.Set<GpayAccountRow>().AsNoTracking()
+                on order.FromAccountId equals (Guid?)payer.Id
+            join payerBank in dbContext.Set<GpayBankRow>().AsNoTracking()
+                on payer.BankId equals payerBank.Id
+            where order.Active == true &&
+                  (order.StatusId == GpayOrderStatusIds.BankHubPrs ||
+                   order.StatusId == GpayOrderStatusIds.BankHubSubmittedToQueue)
+            select new { Order = order, Status = orderStatus.Name, BankName = payerBank.Name, Payer = payer };
+
+        var availableBanks = (await query.Select(row => row.BankName).Distinct().OrderBy(name => name)
+                .ToListAsync(cancellationToken))
+            .Select(NormalizeBank)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(bank))
+        {
+            var bankToken = bank.Trim().ToUpperInvariant() switch
+            {
+                "ABSA" => AbsaBankNameToken,
+                "FNB" => FnbBankNameToken,
+                "NEDBANK" => NedbankNameToken,
+                _ => bank.Trim().ToUpperInvariant()
+            };
+            query = query.Where(row => row.BankName.ToUpper().Contains(bankToken));
+        }
+
+        if (string.Equals(status, "queued", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(row => row.Order.StatusId == GpayOrderStatusIds.BankHubPrs);
+        }
+        else if (string.Equals(status, "submitted", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(row => row.Order.StatusId == GpayOrderStatusIds.BankHubSubmittedToQueue);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var value = search.Trim();
+            var hasOrderId = Guid.TryParse(value, out var orderId);
+            query = query.Where(row =>
+                row.Order.ReferenceNumber != null && row.Order.ReferenceNumber.Contains(value) ||
+                row.Order.OrderNumber.ToString().Contains(value) ||
+                (hasOrderId && row.Order.Id == orderId));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var rows = await query
+            .OrderByDescending(row => row.Order.OrderDate)
+            .ThenByDescending(row => row.Order.OrderNumber)
+            .Skip(Math.Max(0, skip))
+            .Take(Math.Clamp(take, 1, 100))
+            .Select(row => new
+            {
+                row.Order.Id,
+                row.Order.OrderNumber,
+                row.Order.ReferenceNumber,
+                row.Order.OrderDate,
+                row.Status,
+                row.BankName,
+                row.Order.ServiceType,
+                Amount = dbContext.Set<GpayOrderItemRow>()
+                    .Where(item => item.OrderId == row.Order.Id)
+                    .Sum(item => (item.Price ?? 0m) * (item.Quantity ?? 0m)),
+                Currency = dbContext.Set<GpayCountryCurrencyRow>()
+                    .Where(countryCurrency => (int?)countryCurrency.Id == row.Payer.CountryCurrencyId)
+                    .Join(dbContext.Set<GpayCurrencyRow>(), cc => cc.CurrencyId, currency => currency.Id,
+                        (_, currency) => currency.Code)
+                    .FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        return new GpayPaymentQueuePage
+        {
+            TotalCount = totalCount,
+            Banks = availableBanks,
+            Items = rows.Select(row => new GpayPaymentQueueItem
+            {
+                OrderId = row.Id,
+                OrderNumber = row.OrderNumber.ToString(),
+                Reference = ResolvePaymentReference(row.ReferenceNumber, row.OrderNumber),
+                Bank = NormalizeBank(row.BankName),
+                Route = "H2H",
+                Rail = ResolvePaymentRail(row.BankName, row.Amount, row.ServiceType),
+                Status = row.Status,
+                OrderDate = row.OrderDate,
+                Amount = row.Amount,
+                Currency = row.Currency ?? string.Empty
+            }).ToList()
+        };
+    }
+
     public Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default)
     {
         var query =
@@ -275,6 +380,20 @@ internal sealed class GpayOrderSync(
 
     private static string ResolvePaymentReference(string? reference, int orderNumber) =>
         string.IsNullOrWhiteSpace(reference) ? orderNumber.ToString() : reference;
+
+    private static string ResolvePaymentRail(string? bankName, decimal amount, string? serviceType)
+    {
+        var bankCode = NormalizeBank(bankName);
+        if (!Enum.TryParse<BankCode>(bankCode, true, out var bank))
+        {
+            return string.Empty;
+        }
+
+        var orderRail = PaymentRailRouting.ForOrder(bank, amount, serviceType);
+        return string.IsNullOrWhiteSpace(orderRail)
+            ? PaymentRailRouting.ForBankRequest(bank, null)
+            : orderRail;
+    }
 
     public async Task ApplyPaymentAsync(
         GpayPaymentSyncRequest request,

@@ -15,6 +15,14 @@ public interface IGpayOrderSync
         int batchSize,
         CancellationToken cancellationToken = default);
 
+    Task<GpayPaymentQueuePage> GetQueuedAndSubmittedOrdersAsync(
+        int skip,
+        int take,
+        string? bank,
+        string? status,
+        string? search,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Reads the current GPay order status immediately before bank submission.</summary>
     Task<string?> GetOrderStatusAsync(Guid orderId, CancellationToken cancellationToken = default);
 

@@ -10,6 +10,10 @@ namespace GPay.Banking.EntityFrameworkCore;
 [ConnectionStringName("Default")]
 public class BankingDbContext : AbpDbContext<BankingDbContext>
 {
+    public DbSet<BankHubApiCall> BankHubApiCalls { get; set; } = default!;
+    public DbSet<BankHubAvsBatch> BankHubAvsBatches { get; set; } = default!;
+    public DbSet<BankHubAvsRecord> BankHubAvsRecords { get; set; } = default!;
+
     public BankingDbContext(DbContextOptions<BankingDbContext> options)
         : base(options)
     {

@@ -1,6 +1,6 @@
 # GPay Banking Ops
 
-Small Angular operations UI for the Banking API health endpoint.
+Angular operations dashboard for Bank Hub health and audited bank API activity. It includes bank and outcome filters, paging, request metadata, redacted request/response payloads, status details, and response timing.
 
 ## Development
 
@@ -9,7 +9,9 @@ npm install
 npm start
 ```
 
-The development API URL defaults to `http://localhost:63340` and can be changed in `src/environments/environment.ts`.
+The development API URL defaults to `http://localhost:63340` and can be changed in `src/environments/environment.ts`. Enter a Bank Hub JWT in the dashboard access field to query protected activity. The token is held in session storage for the current browser tab.
+
+The activity endpoint reads `BankHubApiCall` audit rows. New outgoing bank HTTP requests are captured by the Bank Hub audit handler, and sensitive payload fields are redacted before persistence.
 
 ## Build and deploy
 

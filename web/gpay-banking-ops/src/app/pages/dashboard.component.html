@@ -1,0 +1,78 @@
+<div class="dashboard" #dashboardRoot>
+  <header class="page-heading">
+    <div><p class="eyebrow"><span class="brand-dot"></span> BANKING OPERATIONS</p><h1>Dashboard</h1><p class="page-subtitle">Monitor API requests, bank connections and payment activity.</p></div>
+    <div class="heading-actions"><span class="health-chip" [class.degraded]="health()?.status !== 'Healthy'"><i></i>{{ health()?.status === 'Healthy' ? 'All systems operational' : 'Health check needed' }}</span><button class="refresh-button" type="button" (click)="refresh()" [disabled]="loading()"><span [class.spin]="loading()">↻</span> Refresh</button></div>
+  </header>
+
+  @if (error()) { <div class="error-banner" role="alert"><span>!</span><div><strong>Could not load dashboard data</strong><small>{{ error() }}</small></div><button type="button" (click)="filtersExpanded.set(true)">Connect access token</button><button type="button" class="retry-button" (click)="refresh()">Retry</button></div> }
+
+  <section class="control-bar">
+    <div class="bank-categories"><span class="control-label">BANK</span><button class="category-chip" type="button" [class.active]="!bank()" (click)="filterByBank('')">All banks</button>@for (item of page()?.banks ?? []; track item) { <button class="category-chip" type="button" [class.active]="bank() === item" (click)="filterByBank(item)">{{ item }}</button> }</div>
+    <div class="control-actions"><span class="active-bank"><i></i>{{ bank() || 'All connected banks' }}</span><button type="button" class="outline-button" (click)="toggleFilters()"><span>⌕</span> {{ filtersExpanded() ? 'Hide filters' : 'Filters' }} <span class="filter-indicator">{{ hasFilters() ? '•' : '' }}</span></button><button type="button" class="connect-button" (click)="filtersExpanded.set(true)">Connect API <span>↗</span></button></div>
+    @if (filtersExpanded()) {
+      <div class="filter-drawer">
+        <label class="search-filter"><span>⌕</span><input placeholder="Search correlation, path, order ID, error…" [ngModel]="search()" (ngModelChange)="search.set($event)" (keyup.enter)="applyFilters()"></label>
+        <label><span>RESULT</span><select [ngModel]="outcome()" (ngModelChange)="outcome.set($event); applyFilters()"><option value="">All results</option><option value="success">Successful</option><option value="failure">Failed</option></select></label>
+        <label><span>DIRECTION</span><select [ngModel]="direction()" (ngModelChange)="direction.set($event); applyFilters()"><option value="">Any direction</option><option value="Outbound">Outbound</option><option value="Inbound">Inbound</option></select></label>
+        <label><span>OPERATION</span><select [ngModel]="operation()" (ngModelChange)="operation.set($event); applyFilters()"><option value="">All operations</option>@for (item of page()?.operations ?? []; track item) { <option [value]="item">{{ item }}</option> }</select></label>
+        <label><span>FROM</span><input type="date" [ngModel]="from()" (ngModelChange)="from.set($event)"></label><label><span>TO</span><input type="date" [ngModel]="to()" (ngModelChange)="to.set($event)"></label>
+        <div class="token-filter"><span>API ACCESS</span><div><input type="password" aria-label="Bank Hub access token" placeholder="Paste Bank Hub access token" [ngModel]="token()" (ngModelChange)="token.set($event)" (keyup.enter)="saveToken()"><button type="button" (click)="saveToken()">Connect</button></div></div>
+        <button class="apply-button" type="button" (click)="applyFilters()">Apply</button>@if (hasFilters()) { <button class="clear-button" type="button" (click)="clearFilters()">Clear filters</button> }
+      </div>
+    }
+  </section>
+
+  <section class="kpi-grid">
+    <article class="kpi-card"><div class="kpi-icon"><span>⌁</span></div><div class="kpi-copy"><span class="kpi-label">API REQUESTS</span><strong>{{ page()?.totalCount ?? '—' }}</strong></div><span class="kpi-side">{{ bank() || 'ALL BANKS' }}</span></article>
+    <article class="kpi-card"><div class="kpi-icon"><span>✓</span></div><div class="kpi-copy"><span class="kpi-label">SUCCESS RATE</span><strong>{{ (page()?.successRate ?? 0) / 100 | percent:'1.0-1' }}</strong></div><span class="trend-pill trend-good">{{ (page()?.totalCount ?? 0) - (page()?.failedCount ?? 0) }} passed</span></article>
+    <article class="kpi-card"><div class="kpi-icon icon-danger"><span>!</span></div><div class="kpi-copy"><span class="kpi-label">FAILED REQUESTS</span><strong>{{ page()?.failedCount ?? '—' }}</strong></div><span class="trend-pill" [class.trend-bad]="(page()?.failedCount ?? 0) > 0">{{ page()?.failedCount ? 'Needs review' : 'No failures' }}</span></article>
+    <article class="kpi-card kpi-highlight"><div class="kpi-icon"><span>◷</span></div><div class="kpi-copy"><span class="kpi-label">AVG RESPONSE</span><strong>{{ page()?.averageDurationMs ?? '—' }}<small>ms</small></strong></div><span class="kpi-side">{{ page()?.uniqueOrderCount ?? 0 }} ORDERS</span></article>
+  </section>
+
+  <div class="dashboard-grid">
+    <div class="primary-column">
+      <section class="chart-row">
+        <article class="card outcomes-card">
+          <div class="card-heading"><div><h2>Request outcomes</h2><p>Success and failure distribution</p></div><span class="card-more">•••</span></div>
+          <div class="donut-wrap"><div class="donut-chart" [style.background]="outcomesStyle()"><div><span class="donut-total">{{ page()?.totalCount ?? 0 }}</span><small>requests</small></div></div></div>
+          <div class="donut-legend"><div><span><i class="legend-green"></i>Successful</span><strong>{{ (page()?.totalCount ?? 0) - (page()?.failedCount ?? 0) }} <small>{{ (page()?.successRate ?? 0) | number:'1.0-0' }}%</small></strong></div><div><span><i class="legend-dark"></i>Failed</span><strong>{{ page()?.failedCount ?? 0 }} <small>{{ page()?.totalCount ? (100 * (page()?.failedCount ?? 0) / page()!.totalCount | number:'1.0-0') : 0 }}%</small></strong></div></div>
+        </article>
+
+        <article class="card traffic-card">
+          <div class="card-heading traffic-heading"><div><h2>API traffic</h2><p>Request volume and failed calls</p></div><select aria-label="Traffic chart range" [ngModel]="timeRange()" (ngModelChange)="timeRange.set(+$event)"><option [ngValue]="7">Last 7 days</option><option [ngValue]="14">Last 14 days</option></select></div>
+          <div class="traffic-summary"><strong>{{ page()?.totalCount ?? 0 }}</strong><span>requests in selected view</span><div class="chart-legend"><span><i class="legend-dark"></i>Requests</span><span><i class="legend-green"></i>Failed</span></div></div>
+          <div class="traffic-chart" role="img" aria-label="Daily bank API request counts"><div class="chart-gridlines"><i></i><i></i><i></i><i></i></div>@for (point of dailyChart(); track point.key) { <div class="traffic-day" [title]="point.label + ': ' + point.total + ' requests, ' + point.failed + ' failed'"><div class="traffic-bars"><i class="traffic-total" [style.height.%]="point.totalHeight"></i><i class="traffic-failed" [style.height.%]="point.failureHeight"></i></div><small>{{ $index % 2 === 0 || timeRange() === 7 ? point.label : '' }}</small></div> }</div>
+        </article>
+      </section>
+
+      <section class="card operations-card">
+        <div class="section-heading"><div><h2>Most active operations</h2><p>Calls grouped by Bank Hub operation</p></div><button type="button" class="link-button" (click)="filtersExpanded.set(true)">View filters <span>→</span></button></div>
+        <div class="operation-bars">@for (item of page()?.operationBreakdown ?? []; track item.label) { <button class="operation-bar-row" type="button" (click)="filterByOperation(item.label)"><span class="operation-name" [title]="item.label">{{ item.label }}</span><span class="operation-meter"><i [style.width.%]="100 * item.total / operationPeak()"></i></span><strong>{{ item.total }}</strong><small>{{ item.averageDurationMs ?? '—' }} ms avg</small></button> } @empty { <div class="empty-mini">No operation data for this selection.</div> }</div>
+        <details class="more-insights"><summary>More performance data</summary><div class="insight-grid"><div><span>Fastest response</span><strong>{{ page()?.minDurationMs ?? '—' }} ms</strong></div><div><span>Slowest response</span><strong>{{ page()?.maxDurationMs ?? '—' }} ms</strong></div><div><span>Outbound calls</span><strong>{{ page()?.outboundCount ?? 0 }}</strong></div><div><span>Inbound callbacks</span><strong>{{ page()?.inboundCount ?? 0 }}</strong></div></div></details>
+      </section>
+
+    </div>
+
+    <aside class="secondary-column">
+      <article class="card featured-card">
+        <div class="card-heading"><div><h2>Needs attention</h2><p>Latest failed bank call</p></div><span class="attention-icon">!</span></div>
+        @if (featuredCall(); as call) {
+          <button class="featured-call" type="button" (click)="openCall(call)"><div class="featured-call-status"><span class="result-tag" [class.result-failed]="!call.success"><i></i>{{ call.success ? 'Latest call' : 'Failed request' }}</span><span>HTTP {{ call.httpStatus ?? '—' }}</span></div><strong>{{ call.bankCode }} · {{ call.operation }}</strong><p>{{ call.errorCode ?? call.path ?? 'No error message captured' }}</p><div class="featured-meta"><span>{{ call.creationTime | date:'dd MMM yyyy, HH:mm:ss' }}</span><span>{{ call.durationMs ?? '—' }} ms</span></div><span class="featured-open">Inspect request <b>→</b></span></button>
+        } @else { <div class="attention-empty"><span>✓</span><strong>No failures in this view</strong><small>Recent failed calls will appear here.</small></div> }
+      </article>
+
+      <article class="card bank-health-card"><div class="card-heading"><div><h2>Connected banks</h2><p>Activity by bank</p></div><span class="bank-total">{{ page()?.bankBreakdown?.length ?? 0 }}</span></div><div class="bank-list">@for (item of page()?.bankBreakdown ?? []; track item.label) { <button type="button" class="bank-list-item" (click)="filterByBank(item.label)"><span class="bank-avatar">{{ item.label.slice(0, 1) }}</span><span class="bank-list-copy"><strong>{{ item.label }}</strong><small>{{ item.total }} calls · {{ item.averageDurationMs ?? '—' }} ms avg</small></span><span class="bank-health-rate" [class.rate-low]="item.successRate < 95">{{ item.successRate | number:'1.0-0' }}%</span></button> } @empty { <div class="empty-mini">Bank summaries appear when calls are recorded.</div> }</div><a routerLink="/health" class="health-link">Open system health <span>→</span></a></article>
+
+      <article class="card status-card"><div class="card-heading"><div><h2>HTTP response codes</h2><p>Response distribution</p></div><span class="card-more">•••</span></div><div class="status-code-list">@for (item of page()?.statusBreakdown ?? []; track item.label) { <div class="status-code-row"><span class="status-code" [class.status-code-fail]="item.failed > 0">{{ item.label }}</span><span class="status-code-meter"><i [class.status-code-meter-fail]="item.failed > 0" [style.width.%]="page()?.totalCount ? (100 * item.total / page()!.totalCount) : 0"></i></span><strong>{{ item.total }}</strong></div> } @empty { <div class="empty-mini">No response codes recorded.</div> }</div></article>
+
+      <article class="card failure-card"><div class="card-heading"><div><h2>Failure breakdown</h2><p>Common error responses</p></div><span class="failure-count">{{ page()?.failedCount ?? 0 }}</span></div><div class="failure-list">@for (item of page()?.failureBreakdown ?? []; track item.label) { <button type="button" class="failure-item" (click)="filterByFailure(item.label)"><span class="failure-label" [title]="item.label">{{ item.label }}</span><span class="failure-amount">{{ item.total }}</span></button> } @empty { <div class="empty-mini">No failure reasons to report.</div> }</div></article>
+    </aside>
+  </div>
+
+  @if (selectedCall() || detailLoading() || detailError()) {
+    <div class="scrim" (click)="closeCall()"><section class="detail-drawer" (click)="$event.stopPropagation()" aria-label="API call details"><header class="drawer-header"><div><span class="panel-kicker">REQUEST INSPECTOR</span><h2>{{ selectedCall()?.operation ?? (detailLoading() ? 'Loading request…' : 'Call details unavailable') }}</h2></div><button type="button" class="close-button" (click)="closeCall()" aria-label="Close details">×</button></header>
+      @if (detailError()) { <div class="drawer-error"><strong>Unable to load call details</strong><p>{{ detailError() }}</p><small>The metadata remains in the call card. Check the API response or reconnect and try again.</small></div> }
+      @if (selectedCall(); as call) { <div class="drawer-status"><span class="result-tag" [class.result-failed]="!call.success"><i></i>{{ call.success ? 'Success' : 'Failed' }}</span><span>{{ call.bankCode }} · {{ call.direction }}</span></div><div class="detail-grid"><div><small>HTTP STATUS</small><strong>{{ call.httpStatus ?? 'No response' }}</strong></div><div><small>DURATION</small><strong>{{ call.durationMs ?? '—' }} ms</strong></div><div><small>CREATED</small><strong>{{ call.creationTime | date:'medium' }}</strong></div><div><small>ORDER ID</small><strong class="mono">{{ call.gpayOrderId ?? '—' }}</strong></div><div class="wide"><small>REQUEST</small><strong class="mono">{{ call.httpMethod }} {{ call.path }}</strong></div><div class="wide"><small>CORRELATION ID</small><strong class="mono">{{ call.correlationId ?? '—' }}</strong></div>@if (call.errorCode) { <div class="wide error-detail"><small>ERROR</small><strong>{{ call.errorCode }}</strong></div> }</div><h3 class="payload-title">Request payload</h3><pre>{{ payload(call.requestJson) }}</pre><h3 class="payload-title">Response payload</h3><pre>{{ payload(call.responseJson) }}</pre><p class="redaction-note">Sensitive fields are redacted before payloads are stored.</p> }
+    </section></div>
+  }
+</div>

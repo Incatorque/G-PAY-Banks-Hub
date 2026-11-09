@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 @Component({
@@ -8,4 +8,14 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
-export class AppComponent {}
+export class AppComponent {
+  readonly mobileNavOpen = signal(false);
+
+  toggleNavigation(): void {
+    this.mobileNavOpen.update(open => !open);
+  }
+
+  closeNavigation(): void {
+    this.mobileNavOpen.set(false);
+  }
+}

@@ -1,3 +1,5 @@
+:host { display: block; padding: 28px; }
+
 .panel__header {
   display: flex;
   justify-content: space-between;
@@ -20,3 +22,6 @@
 
 .muted { color: #667085; font-size: 0.9rem; }
 .error { color: #b42318; }
+
+button { padding: 8px 13px; border: 1px solid #d5e2dd; border-radius: 8px; background: #fff; color: #355c50; }
+button:hover:not(:disabled) { border-color: #70c8aa; background: #f2faf6; }

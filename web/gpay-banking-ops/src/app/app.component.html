@@ -1,11 +1,25 @@
+@if (mobileNavOpen()) { <button class="mobile-backdrop" type="button" aria-label="Close navigation" (click)="closeNavigation()"></button> }
 <div class="shell">
-  <aside class="nav">
-    <div class="brand">GPay Banking</div>
-    <nav>
-      <a routerLink="/health" routerLinkActive="active">Health</a>
+  <aside class="nav" [class.nav-open]="mobileNavOpen()">
+    <div class="brand-row">
+      <a class="brand" routerLink="/" aria-label="GPay Banking operations home" (click)="closeNavigation()"><span class="brand-mark">g</span><span>gpay<span class="brand-light"> banking</span><small>OPERATIONS HUB</small></span></a>
+      <button class="nav-close" type="button" aria-label="Close navigation" (click)="closeNavigation()">×</button>
+    </div>
+    <nav class="nav-links">
+      <p class="nav-label">WORKSPACE</p>
+      <a routerLink="/" [routerLinkActiveOptions]="{exact: true}" routerLinkActive="active" (click)="closeNavigation()"><span class="nav-icon">▦</span> Overview</a>
+      <a routerLink="/api-activity" routerLinkActive="active" (click)="closeNavigation()"><span class="nav-icon">⌁</span> API activity</a>
+      <a routerLink="/transactions" routerLinkActive="active" (click)="closeNavigation()"><span class="nav-icon">⇄</span> Transactions</a>
+      <p class="nav-label nav-label-spaced">MANAGEMENT</p>
+      <a routerLink="/health" routerLinkActive="active" (click)="closeNavigation()"><span class="nav-icon">◉</span> System health</a>
     </nav>
+    <div class="nav-bottom"><div class="sidebar-status"><span class="live-dot"></span><span><strong>Bank Hub</strong><small>Operations console</small></span></div><div class="sidebar-footer">GPay Banking <span>·</span> Admin</div></div>
   </aside>
-  <main>
-    <router-outlet />
+  <main class="main-area">
+    <header class="topbar">
+      <div class="topbar-left"><button type="button" class="menu-button" aria-label="Open navigation" (click)="toggleNavigation()">☰</button><div><strong>Bank Hub</strong><span class="topbar-divider">/</span><span>Operations</span></div></div>
+      <div class="topbar-right"><span class="secure-indicator"><i></i> Secure workspace</span><span class="avatar">G</span></div>
+    </header>
+    <div class="page-content"><router-outlet /></div>
   </main>
 </div>

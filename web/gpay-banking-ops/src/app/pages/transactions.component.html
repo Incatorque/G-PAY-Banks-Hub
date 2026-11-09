@@ -1,0 +1,33 @@
+<main class="transactions-page">
+  <header class="transactions-heading">
+    <div><p class="eyebrow"><span></span> PAYMENT OPERATIONS</p><h1>Transactions</h1><p>Track payment orders waiting in the Bank Hub workflow.</p></div>
+    <div class="heading-actions"><button class="access-button" type="button" (click)="toggleAccess()">API access</button><button class="refresh-button" type="button" (click)="refresh()" [disabled]="loading()"><span [class.spin]="loading()">↻</span> Refresh</button></div>
+  </header>
+
+  @if (accessExpanded()) { <section class="access-panel"><label><span>Bank Hub access token</span><input type="password" placeholder="Paste access token" [ngModel]="token()" (ngModelChange)="token.set($event)" (keyup.enter)="saveToken()"></label><button type="button" (click)="saveToken()">Save and connect</button></section> }
+
+  <section class="queue-overview">
+    <div class="queue-stat"><span class="stat-icon">↗</span><div><small>ACTIVE TRANSACTIONS</small><strong>{{ transactions()?.totalCount ?? '—' }}</strong></div></div>
+    <p>Queued orders are ready for Bank Hub processing. Submitted orders have been handed off and are awaiting a status update.</p>
+  </section>
+
+  <section class="queue-panel">
+    <div class="queue-title-row"><div><h2>Payment queue</h2><p>{{ transactions()?.totalCount ?? 0 }} matching transaction{{ (transactions()?.totalCount ?? 0) === 1 ? '' : 's' }}</p></div>
+      <label class="search-box"><span>⌕</span><input placeholder="Search reference, order number or ID" [ngModel]="search()" (ngModelChange)="search.set($event)" (keyup.enter)="refresh()"></label>
+    </div>
+
+    <div class="queue-filters">
+      <div class="bank-tabs" aria-label="Filter transactions by bank"><button type="button" [class.active]="!bank()" (click)="setBank('')">All banks</button>@for (item of transactions()?.banks ?? []; track item) { <button type="button" [class.active]="bank() === item" (click)="setBank(item)">{{ item }}</button> }</div>
+      <div class="status-tabs" aria-label="Filter transactions by status"><button type="button" [class.active]="!status()" (click)="setStatus('')">All statuses</button><button type="button" [class.active]="status() === 'queued'" (click)="setStatus('queued')">Queued</button><button type="button" [class.active]="status() === 'submitted'" (click)="setStatus('submitted')">Submitted</button></div>
+    </div>
+
+    @if (error()) { <div class="queue-error" role="alert"><span>{{ error() }}</span><button type="button" (click)="refresh()">Try again</button></div> }
+
+    <div class="table-scroll"><table><thead><tr><th>ORDER</th><th>REFERENCE</th><th>BANK</th><th>ROUTE</th><th>RAIL</th><th>AMOUNT</th><th>STATUS</th><th>CREATED</th></tr></thead>
+      <tbody>@for (item of transactions()?.items ?? []; track item.orderId) {
+        <tr><td><strong>{{ item.orderNumber }}</strong><small>{{ item.orderId }}</small></td><td>{{ item.reference }}</td><td><span class="bank-icon">{{ item.bank.slice(0, 1) }}</span>{{ item.bank }}</td><td><span class="route-chip">{{ item.route }}</span></td><td><span class="rail-chip" [class.no-rail]="!item.rail">{{ item.rail || '—' }}</span></td><td class="amount">{{ item.amount | number:'1.2-2' }} {{ item.currency }}</td><td><span class="status-chip" [class.submitted]="item.status.toLowerCase().includes('submitted')"><i></i>{{ item.status }}</span></td><td>{{ item.orderDate | date:'dd MMM yyyy, HH:mm' }}</td></tr>
+      } @empty { <tr><td colspan="8" class="empty-state"><span class="empty-icon">✓</span><strong>{{ loading() ? 'Loading transactions…' : 'No matching transactions' }}</strong><small>{{ bank() || status() || search() ? 'Adjust the filters to see other transactions.' : 'Queued and submitted payment orders will appear here.' }}</small></td></tr> }</tbody>
+    </table></div>
+    <footer class="queue-footer"><span>Showing {{ transactions()?.items?.length ?? 0 }} of {{ transactions()?.totalCount ?? 0 }} transactions</span>@if ((transactions()?.items?.length ?? 0) < (transactions()?.totalCount ?? 0)) { <button type="button" (click)="loadMore()" [disabled]="loading()">{{ loading() ? 'Loading…' : 'Load more transactions ↓' }}</button> }</footer>
+  </section>
+</main>
