@@ -81,24 +81,15 @@ internal static class PaymentRuleDiagnostics
             return;
         }
 
-        foreach (var rule in matchingRules)
-        {
-            logger.LogInformation(
-                "Payment routing selected bank {Bank} rail {Rail} for order {OrderNumber}, amount {Amount}, requestedRail={RequestedRail}; active BankTime rule {RuleId} matched the rail-selection amount criteria. Rule dimensions: day={Day}, time={StartTime}-{EndTime}, minAmount={MinAmount}, maxAmount={MaxAmount}, onUs={OnUs}, internal={IsInternal}.",
-                bank,
-                railCode,
-                orderNumber,
-                amount,
-                requestedRail,
-                rule.RuleId,
-                DayName(rule.DayOfWeek),
-                rule.StartTime,
-                rule.EndTime,
-                rule.MinAmount,
-                rule.MaxAmount,
-                rule.IsOnUs,
-                rule.IsInternal);
-        }
+        logger.LogInformation(
+            "Payment routing selected bank {Bank} rail {Rail} for order {OrderNumber}, amount {Amount}, requestedRail={RequestedRail}. {RuleCount} active BankTime rule(s) with IDs {RuleIds} accept this amount for rail selection. Absa PAAF separately evaluates day, time, and on-us/off-us before submission; RPP selection uses amount only.",
+            bank,
+            railCode,
+            orderNumber,
+            amount,
+            requestedRail,
+            matchingRules.Count,
+            string.Join(",", matchingRules.Select(rule => rule.RuleId)));
     }
 
     public static string DayName(int dayOfWeek) => dayOfWeek switch
