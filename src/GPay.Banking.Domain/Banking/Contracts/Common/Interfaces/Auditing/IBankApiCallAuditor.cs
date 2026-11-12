@@ -18,7 +18,7 @@ public sealed class BankApiCallAuditEntry
 {
     public Guid? GpayOrderId { get; init; }
 
-    public string BankCode { get; init; } = "Absa";
+    public string BankCode { get; init; } = string.Empty;
 
     /// <summary><c>Outbound</c> or <c>Inbound</c>.</summary>
     public string Direction { get; init; } = "Outbound";

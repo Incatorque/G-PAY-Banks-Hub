@@ -82,7 +82,7 @@ internal static class PaymentRuleDiagnostics
         }
 
         logger.LogInformation(
-            "Payment routing selected bank {Bank} rail {Rail} for order {OrderNumber}, amount {Amount}, requestedRail={RequestedRail}. {RuleCount} active BankTime rule(s) with IDs {RuleIds} accept this amount for rail selection. Absa PAAF separately evaluates day, time, and on-us/off-us before submission; RPP selection uses amount only.",
+            "Payment routing selected bank {Bank} rail {Rail} for order {OrderNumber}, amount {Amount}, requestedRail={RequestedRail}. {RuleCount} active BankTime rule(s) with IDs {RuleIds} accept this amount for rail selection; bank schedule validation checks day, time, and on-us/off-us before submission.",
             bank,
             railCode,
             orderNumber,

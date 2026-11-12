@@ -23,6 +23,7 @@ public sealed class AbsaErrorMapper : IBankErrorMapper
             BankMessage = bankErrorMessage,
             Details = new Dictionary<string, string[]>
             {
+                ["bank"] = ["Absa"],
                 ["category"] = [info.Category],
                 ["severity"] = [info.Severity],
                 ["known"] = [info.Known ? "true" : "false"]

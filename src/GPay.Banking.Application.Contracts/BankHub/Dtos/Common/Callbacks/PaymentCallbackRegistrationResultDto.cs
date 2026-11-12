@@ -29,6 +29,9 @@ public class PaymentCallbackRegistrationResultDto
     /// <summary>Error message when unsuccessful.</summary>
     public string? ErrorMessage { get; set; }
 
+    /// <summary>Bank-neutral normalized error details.</summary>
+    public BankErrorInfo? BankError { get; set; }
+
     /// <summary>Absa catalog entry when an Absa error code is present.</summary>
     public AbsaErrorInfo? AbsaError { get; set; }
 }

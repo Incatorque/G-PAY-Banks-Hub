@@ -18,7 +18,8 @@ internal static class BankPaymentResultMapper
                 Status = PaymentStatuses.Error,
                 ErrorCode = result.Error?.Code,
                 ErrorMessage = result.Error?.Message,
-                AbsaError = AbsaErrorResponses.From(result.Error)
+                BankError = BankErrorResponses.From(result.Error),
+                AbsaError = BankErrorResponses.FromAbsa(result.Error)
             };
         }
 
@@ -33,12 +34,15 @@ internal static class BankPaymentResultMapper
             TransactionReference = data.TransactionReference ?? data.TransactionId,
             SourceStatementRef = data.SourceStatementRef,
             TargetStatementRef = data.TargetStatementRef,
+            BankMessageIdentification = data.BankMessageIdentification,
+            BankInstructionUetr = data.BankInstructionUetr,
             BankStatusCode = data.BankStatusCode?.ToString(),
             PaymentRail = data.PaymentRail,
             ResultDescription = data.ResultDescription,
             CorrelationId = correlationId,
             ErrorCode = data.ErrorCode,
-            AbsaError = AbsaErrorResponses.FromCode(data.ErrorCode, data.ResultDescription),
+            BankError = BankErrorResponses.FromCode(data.ErrorCode, data.ResultDescription, data.BankCode),
+            AbsaError = BankErrorResponses.FromAbsaCode(data.ErrorCode, data.ResultDescription, data.BankCode),
             Success = true
         };
     }

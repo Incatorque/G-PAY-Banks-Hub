@@ -28,7 +28,7 @@ internal static class PaymentNotificationFactory
             ElapsedMinutes = elapsedMinutes,
             TransactionReference = transactionReference,
             ApiReference = apiReference,
-            StatusDescription = statusDescription ?? "Absa continues to report this payment as Submitted."
+            StatusDescription = statusDescription ?? "The bank continues to report this payment as Submitted."
         };
 
     public static GpayPaymentInitiatedNotification StatusCheckError(

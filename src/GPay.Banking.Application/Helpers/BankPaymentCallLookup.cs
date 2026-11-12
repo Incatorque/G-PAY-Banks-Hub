@@ -14,11 +14,13 @@ internal static class BankPaymentCallLookup
         var calls = await repository.GetListAsync(call =>
             call.BankCode == bankCode &&
             call.Direction == "Outbound" &&
-            call.Operation == "initiate" &&
             call.GpayOrderId.HasValue &&
-            call.ResponseJson != null &&
-            ((!string.IsNullOrWhiteSpace(transactionReference) && call.ResponseJson.Contains(transactionReference)) ||
-             (!string.IsNullOrWhiteSpace(apiReference) && call.ResponseJson.Contains(apiReference))));
+            ((transactionReference != null &&
+              ((call.RequestJson != null && call.RequestJson.Contains(transactionReference)) ||
+               (call.ResponseJson != null && call.ResponseJson.Contains(transactionReference)))) ||
+             (apiReference != null &&
+              ((call.RequestJson != null && call.RequestJson.Contains(apiReference)) ||
+               (call.ResponseJson != null && call.ResponseJson.Contains(apiReference))))));
 
         return calls.OrderByDescending(call => call.CreationTime).FirstOrDefault();
     }

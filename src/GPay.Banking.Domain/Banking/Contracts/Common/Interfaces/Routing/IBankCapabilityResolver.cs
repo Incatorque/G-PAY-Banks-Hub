@@ -5,6 +5,7 @@ namespace GPay.Banking.Domain;
 /// </summary>
 public interface IBankCapabilityResolver
 {
+    bool SupportsInstantPayment(BankCode bank);
     IAccountVerificationService GetAccountVerification(BankCode bank);
     IInstantPaymentService GetInstantPayment(BankCode bank);
     IStatementService GetStatement(BankCode bank);

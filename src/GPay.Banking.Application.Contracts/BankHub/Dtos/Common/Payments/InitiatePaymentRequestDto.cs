@@ -8,11 +8,11 @@ namespace GPay.Banking.BankHub;
 /// </summary>
 public class InitiatePaymentRequestDto
 {
-    /// <summary>Target bank: Absa, Fnb, or Nedbank. Defaults to Absa.</summary>
+    /// <summary>Target bank. Defaults to Absa for backwards compatibility.</summary>
     /// <example>Absa</example>
     public string Bank { get; set; } = "Absa";
 
-    /// <summary>Debit account number (Absa CAPI-linked Source account).</summary>
+    /// <summary>Debit account number.</summary>
     [Required]
     public string FromAccountNumber { get; set; } = string.Empty;
 
@@ -23,6 +23,9 @@ public class InitiatePaymentRequestDto
     /// <summary>Credit branch / sort code.</summary>
     [Required]
     public string ToBranchCode { get; set; } = string.Empty;
+
+    /// <summary>Optional target bank BICFI. Required for Capitec when no configured bank mapping matches.</summary>
+    public string? ToBankBicfi { get; set; }
 
     /// <summary>Payment amount in major currency units.</summary>
     public decimal Amount { get; set; }
@@ -37,25 +40,25 @@ public class InitiatePaymentRequestDto
     /// <summary>Beneficiary name.</summary>
     public string? BeneficiaryName { get; set; }
 
-    /// <summary>Beneficiary bank name/code. Used to apply Absa on-us versus off-us processing rules.</summary>
+    /// <summary>Beneficiary bank name/code. Used by bank-specific schedule rules to identify on-us payments.</summary>
     public string? BeneficiaryBank { get; set; }
 
-    /// <summary>Bank-specific payment rail. Absa accepts RPP (PayShap), IIP (RTC), or PAAF and defaults to RPP; other banks use their own rail identifiers.</summary>
+    /// <summary>Bank-specific payment rail identifier. Leave empty only when the bank adapter can derive it.</summary>
     public string PaymentRail { get; set; } = string.Empty;
 
-    /// <summary>Authorisation.SubmittingEntityName (defaults from AbsaCapi config).</summary>
+    /// <summary>Legacy Absa CAPI submitting entity field; ignored by adapters that do not use it.</summary>
     public string? SubmittingEntityName { get; set; }
 
-    /// <summary>Authorisation.SubsidiaryEntityName (defaults from AbsaCapi config).</summary>
+    /// <summary>Legacy Absa CAPI subsidiary entity field; ignored by adapters that do not use it.</summary>
     public string? SubsidiaryEntityName { get; set; }
 
-    /// <summary>Authorisation.Indicator (default 0).</summary>
+    /// <summary>Legacy Absa CAPI authorization indicator.</summary>
     public int AuthorisationIndicator { get; set; }
 
     /// <summary>Source account type (default 10 = Current).</summary>
     public int FromAccountType { get; set; } = 10;
 
-    /// <summary>Source short name on Absa profile (defaults from AbsaCapi:DefaultSourceShortName).</summary>
+    /// <summary>Legacy Absa CAPI source short name.</summary>
     public string? FromShortName { get; set; }
 
     /// <summary>Source statement reference (defaults to Reference).</summary>

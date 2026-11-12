@@ -62,6 +62,8 @@ public class InstantPaymentAppService(
                 {
                     TransactionReference = input.TransactionReference,
                     ApiReference = input.ApiReference,
+                    BankMessageIdentification = input.BankMessageIdentification,
+                    BankInstructionUetr = input.BankInstructionUetr,
                     GpayOrderId = paymentCall?.GpayOrderId
                 },
                 correlationId);

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System;
 using System.Text.Json;
 using GPay.Banking.Domain;
 using GPay.Banking.Services.Absa.Api.Clients;
@@ -19,7 +20,8 @@ internal static class BankApiCallAuditMetadata
 internal sealed class BankApiCallAuditHandler(
     IServiceScopeFactory scopeFactory,
     ILogger<BankApiCallAuditHandler> logger,
-    string defaultBankCode) : DelegatingHandler
+    string defaultBankCode,
+    Func<string?, string?>? payloadRedactor = null) : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -73,8 +75,8 @@ internal sealed class BankApiCallAuditHandler(
                 Path = request.RequestUri?.AbsolutePath,
                 HttpStatus = statusCode,
                 CorrelationId = correlationId,
-                RequestJson = AbsaApiPayloadRedactor.Redact(requestBody),
-                ResponseJson = AbsaApiPayloadRedactor.Redact(responseBody),
+                RequestJson = Redact(requestBody),
+                ResponseJson = Redact(responseBody),
                 DurationMs = stopwatch.ElapsedMilliseconds,
                 Success = success,
                 ErrorCode = errorCode
@@ -99,6 +101,10 @@ internal sealed class BankApiCallAuditHandler(
                 entry.Operation);
         }
     }
+
+    private string? Redact(string? payload) => payloadRedactor is null
+        ? AbsaApiPayloadRedactor.Redact(payload)
+        : payloadRedactor(payload);
 
     private async Task<string?> ReadContentSafelyAsync(HttpContent? content, string contentType)
     {

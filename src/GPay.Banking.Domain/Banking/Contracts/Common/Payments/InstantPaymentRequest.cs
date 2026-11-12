@@ -24,6 +24,12 @@ public sealed record InstantPaymentRequest
     /// </summary>
     public required string ToBranchCode { get; init; }
 
+    /// <summary>Beneficiary bank code used to resolve a required target bank BICFI.</summary>
+    public string? BeneficiaryBank { get; init; }
+
+    /// <summary>Explicit target bank BICFI for payment APIs that require SWIFT bank identifiers.</summary>
+    public string? ToBankBicfi { get; init; }
+
     /// <summary>
     /// Payment amount in major currency units.
     /// </summary>
@@ -35,7 +41,7 @@ public sealed record InstantPaymentRequest
     public string Currency { get; init; } = "ZAR";
 
     /// <summary>
-    /// Client payment reference (maps to Economics.TransactionRef).
+    /// Client payment reference, mapped to the appropriate bank-specific end-to-end reference.
     /// </summary>
     public required string Reference { get; init; }
 
@@ -45,8 +51,7 @@ public sealed record InstantPaymentRequest
     public string? BeneficiaryName { get; init; }
 
     /// <summary>
-    /// Bank-specific payment rail / Economics.Indicator. Absa uses RPP (PayShap), IIP (RTC), or PAAF;
-    /// other banks use their own rail identifiers. Absa defaults to RPP.
+    /// Bank-specific payment rail selected by routing rules.
     /// </summary>
     public string PaymentRail { get; init; } = string.Empty;
 

@@ -127,6 +127,7 @@ public sealed class AbsaPaymentMapper(IOptions<AbsaCapiOptions> options) : IAbsa
 
         return new InstantPaymentResponse
         {
+            BankCode = "Absa",
             TransactionId = txRef,
             TransactionReference = txRef,
             ApiReference = apiRef,
@@ -168,6 +169,7 @@ public sealed class AbsaPaymentMapper(IOptions<AbsaCapiOptions> options) : IAbsa
             var err = response.ErrorList?.FirstOrDefault();
             return new PaymentStatusResponse
             {
+                BankCode = "Absa",
                 Status = "Failed",
                 RawStatusLabel = "Failed",
                 BankStatusCode = 0,
@@ -187,6 +189,7 @@ public sealed class AbsaPaymentMapper(IOptions<AbsaCapiOptions> options) : IAbsa
 
         return new PaymentStatusResponse
         {
+            BankCode = "Absa",
             TransactionId = txRef ?? apiRef,
             TransactionReference = txRef,
             ApiReference = apiRef,

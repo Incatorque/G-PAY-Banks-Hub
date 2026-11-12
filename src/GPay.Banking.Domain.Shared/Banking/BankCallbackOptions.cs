@@ -14,7 +14,7 @@ public sealed class BankCallbackOptions
     public bool EnforceSourceAllowList { get; set; }
 
     /// <summary>
-    /// Per-bank callback settings. Keys: Absa, Fnb, Nedbank.
+    /// Per-bank callback settings keyed by bank code (for example Absa or Capitec).
     /// </summary>
     public Dictionary<string, BankCallbackBankOptions> Banks { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

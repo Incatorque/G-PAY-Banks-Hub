@@ -54,14 +54,15 @@ public class TransactionHistoryAppService(IBankCapabilityResolver resolver)
             },
             correlationId);
 
-        return Map(result, correlationId, input.FromDate, input.ToDate);
+        return Map(result, correlationId, input.FromDate, input.ToDate, bank.ToString());
     }
 
     private static TransactionHistoryResultDto Map(
         ApiResult<StatementResponse> result,
         string correlationId,
         DateOnly fromDate,
-        DateOnly toDate)
+        DateOnly toDate,
+        string bank)
     {
         if (!result.Success || result.Data is null)
         {
@@ -72,7 +73,8 @@ public class TransactionHistoryAppService(IBankCapabilityResolver resolver)
                 ToDate = toDate,
                 ErrorCode = result.Error?.Code,
                 ErrorMessage = result.Error?.Message,
-                AbsaError = AbsaErrorResponses.From(result.Error)
+                BankError = BankErrorResponses.From(result.Error),
+                AbsaError = BankErrorResponses.FromAbsa(result.Error)
             };
         }
 

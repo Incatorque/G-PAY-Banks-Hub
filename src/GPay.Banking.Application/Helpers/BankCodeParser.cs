@@ -19,6 +19,7 @@ internal static class BankCodeParser
             "ABSA" => BankCode.Absa,
             "FNB" or "FIRST NATIONAL BANK" => BankCode.Fnb,
             "NEDBANK" => BankCode.Nedbank,
+            "CAPITEC" or "CAPITEC BANK" => BankCode.Capitec,
             _ => throw new UserFriendlyException($"Bank '{bank}' is not supported.")
         };
     }

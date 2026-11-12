@@ -35,6 +35,9 @@ public class TransactionHistoryResultDto
     /// <summary>Error detail when <see cref="Success"/> is <c>false</c>.</summary>
     public string? ErrorMessage { get; set; }
 
+    /// <summary>Bank-neutral normalized error details.</summary>
+    public BankErrorInfo? BankError { get; set; }
+
     /// <summary>
     /// Absa catalog entry when the statement call fails. Null on success.
     /// </summary>

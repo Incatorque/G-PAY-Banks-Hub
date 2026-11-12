@@ -22,7 +22,7 @@ internal sealed class InstantPaymentInitiator(
     IGpayOrderSync gpayOrderSync,
     IGpayPaymentNotificationQueue notifications,
     IBankPaymentConfigurationProvider paymentConfigurationProvider,
-    IAbsaPaymentSchedule absaPaymentSchedule,
+    IBankPaymentSchedule bankPaymentSchedule,
     ILogger<InstantPaymentInitiator> logger) : IInstantPaymentInitiator
 {
     public async Task<PaymentResultDto> InitiateAsync(
@@ -42,6 +42,8 @@ internal sealed class InstantPaymentInitiator(
             FromAccountNumber = input.FromAccountNumber,
             ToAccountNumber = input.ToAccountNumber,
             ToBranchCode = input.ToBranchCode,
+            BeneficiaryBank = input.BeneficiaryBank,
+            ToBankBicfi = input.ToBankBicfi,
             Amount = input.Amount,
             Currency = input.Currency,
             Reference = input.Reference,
@@ -109,17 +111,15 @@ internal sealed class InstantPaymentInitiator(
                 notificationRail,
                 bankConfiguration);
 
-            if (bank == BankCode.Absa && string.Equals(notificationRail, PaymentRailRouting.AbsaPaaf, StringComparison.Ordinal))
+            var deferralReason = await bankPaymentSchedule.GetDeferralReasonAsync(
+                input.Amount,
+                bankStorageCode,
+                notificationRail,
+                input.BeneficiaryBank,
+                cancellationToken);
+            if (deferralReason is not null)
             {
-                var deferralReason = await absaPaymentSchedule.GetPaafDeferralReasonAsync(
-                    input.Amount,
-                    bankStorageCode,
-                    input.BeneficiaryBank,
-                    cancellationToken);
-                if (deferralReason is not null)
-                {
-                    throw new PaymentDeferredException($"Payment was not submitted to Absa. {deferralReason}");
-                }
+                throw new PaymentDeferredException($"Payment was not submitted to {bankStorageCode}. {deferralReason}");
             }
 
             var result = await bankRouter.SubmitPaymentAsync(bank, domainRequest, correlationId);

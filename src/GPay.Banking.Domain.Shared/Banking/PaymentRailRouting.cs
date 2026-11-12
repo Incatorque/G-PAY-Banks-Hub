@@ -101,7 +101,8 @@ public static class PaymentRailRouting
                 var selectedRail = string.IsNullOrWhiteSpace(requestedRail)
                     ? configuredRails.FirstOrDefault(rail => HasAmountRule(rail, amount))
                     : configuredRails.FirstOrDefault(rail =>
-                        string.Equals(rail.Name, requestedRail.Trim(), StringComparison.OrdinalIgnoreCase));
+                        string.Equals(rail.Name, requestedRail.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(rail.RailCode, requestedRail.Trim(), StringComparison.OrdinalIgnoreCase));
 
                 if (selectedRail is null || !HasAmountRule(selectedRail, amount))
                 {

@@ -39,6 +39,7 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
         var gpay = services.GetRequiredService<IGpayOrderSync>();
 
         var bankRouter = services.GetRequiredService<IBankRouterService>();
+        var bankCapabilities = services.GetRequiredService<IBankCapabilityResolver>();
 
         var notifications = services.GetRequiredService<IGpayPaymentNotificationQueue>();
 
@@ -55,9 +56,9 @@ public sealed class PaymentStatusWorker : AsyncPeriodicBackgroundWorkerBase
             try
             {
                 var bank = BankCodeParser.Parse(order.Bank);
-
-                if (bank != BankCode.Absa) //Only ABSA for now.
+                if (!bankCapabilities.SupportsInstantPayment(bank))
                 {
+                    logger.LogDebug("Skipping status check for {Bank}; no instant-payment status service is registered.", order.Bank);
                     continue;
                 }
 

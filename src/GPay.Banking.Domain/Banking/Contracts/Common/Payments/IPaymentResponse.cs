@@ -3,6 +3,7 @@ namespace GPay.Banking.Domain.Dtos;
 /// <summary>Normalized fields shared by payment initiation and status responses.</summary>
 public interface IPaymentResponse
 {
+    string? BankCode { get; }
     string Status { get; }
     string? RawStatusLabel { get; }
     string? Reference { get; }
@@ -13,6 +14,8 @@ public interface IPaymentResponse
     string? TransactionId { get; }
     string? SourceStatementRef { get; }
     string? TargetStatementRef { get; }
+    string? BankMessageIdentification { get; }
+    string? BankInstructionUetr { get; }
     int? BankStatusCode { get; }
     string? PaymentRail { get; }
     string? ResultDescription { get; }

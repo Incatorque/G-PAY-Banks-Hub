@@ -46,7 +46,7 @@ public class AccountVerificationAppService(
         var service = resolver.GetAccountVerification(bank);
         var result = await service.VerifyAsync(domainRequest, correlationId);
 
-        var dto = MapResult(result, correlationId);
+        var dto = MapResult(result, correlationId, bank.ToString());
         var record = new BankHubAvsRecord
         {
             ApiClientId = input.ApiClientId,
@@ -205,7 +205,7 @@ public class AccountVerificationAppService(
         }).ToList();
     }
 
-    private static AccountVerificationResultDto MapResult(ApiResult<AccountVerificationResponse> result, string correlationId)
+    private static AccountVerificationResultDto MapResult(ApiResult<AccountVerificationResponse> result, string correlationId, string bank)
     {
         if (!result.Success || result.Data is null)
         {
@@ -215,7 +215,8 @@ public class AccountVerificationAppService(
                 ResultCode = result.Error?.Code,
                 ResultDescription = result.Error?.Message,
                 ErrorMessage = result.Error?.Message,
-                AbsaError = AbsaErrorResponses.From(result.Error)
+                BankError = BankErrorResponses.From(result.Error),
+                AbsaError = BankErrorResponses.FromAbsa(result.Error)
             };
         }
 
@@ -246,7 +247,8 @@ public class AccountVerificationAppService(
             MatchingCriteria = d.MatchingCriteria,
             CorrelationId = correlationId,
             SuccessRate = BankHubAvsRecordMapper.CalculateSuccessRate(d),
-            AbsaError = AbsaErrorResponses.FromCode(d.BankResultCode, d.ResultDescription) is { Known: true } error
+            BankError = BankErrorResponses.FromCode(d.BankResultCode, d.ResultDescription, bank),
+            AbsaError = BankErrorResponses.FromAbsaCode(d.BankResultCode, d.ResultDescription, bank) is { Known: true } error
                 ? error
                 : null
         };

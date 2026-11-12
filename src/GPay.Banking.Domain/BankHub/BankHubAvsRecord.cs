@@ -7,7 +7,7 @@ public class BankHubAvsRecord : AuditedAggregateRoot<Guid>
     public Guid? BatchId { get; set; }
     public Guid? ApiClientId { get; set; }
     public int? RowNumber { get; set; }
-    public string BankCode { get; set; } = "Absa";
+    public string BankCode { get; set; } = string.Empty;
     public string? Reference { get; set; }
     public string? CorrelationId { get; set; }
     public string AccountNumber { get; set; } = string.Empty;

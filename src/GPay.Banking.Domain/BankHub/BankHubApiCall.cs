@@ -10,7 +10,7 @@ public class BankHubApiCall : CreationAuditedAggregateRoot<Guid>
     /// <summary>Links payment API audit rows to the originating GPay order.</summary>
     public Guid? GpayOrderId { get; set; }
 
-    public string BankCode { get; set; } = "Absa";
+    public string BankCode { get; set; } = string.Empty;
 
     public string Direction { get; set; } = "Outbound";
 

@@ -27,7 +27,7 @@ public class BankingApplicationModule : AbpModule
 
         Configure<SouthAfricanHolidayOptions>(configuration.GetSection(SouthAfricanHolidayOptions.SectionName));
         context.Services.AddMemoryCache();
-        context.Services.AddHttpClient<IAbsaPaymentSchedule, AbsaPaymentSchedule>(client =>
+        context.Services.AddHttpClient<IBankPaymentSchedule, BankPaymentSchedule>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
         });

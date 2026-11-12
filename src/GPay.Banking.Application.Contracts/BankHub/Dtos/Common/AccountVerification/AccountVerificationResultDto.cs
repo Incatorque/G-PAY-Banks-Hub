@@ -91,6 +91,9 @@ public class AccountVerificationResultDto
     /// <summary>Error detail when <see cref="Success"/> is <c>false</c>.</summary>
     public string? ErrorMessage { get; set; }
 
+    /// <summary>Bank-neutral normalized error details.</summary>
+    public BankErrorInfo? BankError { get; set; }
+
     /// <summary>
     /// Absa catalog entry for the bank code on this call. Null when Absa did not return an error code.
     /// </summary>

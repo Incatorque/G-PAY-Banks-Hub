@@ -2,6 +2,7 @@ using GPay.Banking.BankHub;
 using GPay.Banking.Domain;
 using GPay.Banking.Helpers;
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -17,15 +18,11 @@ namespace GPay.Banking;
 /// Bank payment webhook AppService (ABP conventional endpoint).
 /// </summary>
 /// <remarks>
-/// <para>
-/// Register with banks as:
-/// <c>POST /api/app/callback/process-payment?bank=Absa</c>
-/// </para>
+/// <para>Bank callback URL: <c>POST /api/app/callback/process-payment?bank={BankCode}</c>.</para>
 /// <para>
 /// When <c>bank</c> is omitted, source IP / domain allow-lists can resolve it.
-/// Request body is bank-native JSON (Absa PaymentCallback). Not JWT-authenticated —
-/// secured via allow-list + shared Token (+ signature inside the bank adapter).
-/// Absa may retry; this handler is idempotent.
+/// The request body uses that bank's callback format. This endpoint is not JWT-authenticated;
+/// it uses configured source allow-lists plus bank-specific verification and idempotent updates.
 /// </para>
 /// </remarks>
 public class CallbackAppService(
@@ -42,13 +39,12 @@ public class CallbackAppService(
     /// Processes a bank payment status callback and updates the matching GPay order when found.
     /// </summary>
     /// <param name="bank">
-    /// Bank key: <c>Absa</c>, <c>Fnb</c>, or <c>Nedbank</c>.
+    /// Registered bank code or name, for example <c>Absa</c> or <c>Capitec</c>.
     /// Omit to resolve from configured source IP / domain allow-lists.
     /// </param>
-    /// <returns>Acknowledgement for the bank (<c>success</c> / <c>message</c>). Idempotent under Absa retries.</returns>
+    /// <returns>Acknowledgement for the bank (<c>success</c> / <c>message</c>).</returns>
     /// <remarks>
-    /// Anonymous. Body = bank-native JSON (Absa PaymentCallback with Token).
-    /// Secured by allow-list + shared Token (+ signature in adapter).
+    /// Anonymous. The bank adapter validates the bank-native payload and configured source policy.
     /// </remarks>
     [AllowAnonymous]
     public async Task<CallbackAckDto> ProcessPaymentAsync(string? bank = null)
@@ -194,11 +190,28 @@ public class CallbackAppService(
         await gpayOrderSync.ApplyPaymentAsync(new GpayPaymentSyncRequest
         {
             GpayOrderId = gpayOrderId,
-            Reference = update.TransactionReference ?? update.ApiReference,
+            Reference = update.TransactionReference ??
+                (bankCode == BankCode.Capitec ? ReadCapitecEndToEndReference(paymentCall.RequestJson) : update.ApiReference),
             TransactionReference = update.TransactionReference,
             HubStatus = update.Status,
             Note = update.ErrorMessage,
             Amount = update.Amount ?? 0m
         });
+    }
+
+    private static string? ReadCapitecEndToEndReference(string? requestJson)
+    {
+        if (string.IsNullOrWhiteSpace(requestJson)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(requestJson);
+            return document.RootElement.GetProperty("paymentInstruction")[0]
+                .GetProperty("creditTransferTransaction")[0]
+                .GetProperty("endToEndIdentification").GetString();
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException or IndexOutOfRangeException)
+        {
+            return null;
+        }
     }
 }

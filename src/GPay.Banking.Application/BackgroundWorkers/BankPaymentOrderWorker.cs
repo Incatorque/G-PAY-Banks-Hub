@@ -132,7 +132,8 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
             catch (PaymentDeferredException ex)
             {
                 logger.LogInformation(
-                    "Deferring Absa PAAF payment for GPay order {OrderNumber}: {DeferralReason} The order remains queued for the next Bank Hub poll.",
+                    "Deferring {Bank} payment for GPay order {OrderNumber}: {DeferralReason} The order remains queued for the next Bank Hub poll.",
+                    order.Bank,
                     order.OrderNumber,
                     ex.Message);
             }

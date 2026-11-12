@@ -4,5 +4,6 @@ public enum BankCode
 {
     Absa = 1,
     Fnb = 2,
-    Nedbank = 3
+    Nedbank = 3,
+    Capitec = 4
 }

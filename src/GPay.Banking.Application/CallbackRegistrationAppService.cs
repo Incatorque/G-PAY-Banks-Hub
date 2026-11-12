@@ -33,7 +33,7 @@ public class CallbackRegistrationAppService(
     /// <inheritdoc />
     public Task<PaymentCallbackDefaultsDto> GetDefaultsAsync(string bank = "Absa")
     {
-        _ = BankCodeParser.Parse(bank);
+        EnsureRegistrationSupported(BankCodeParser.Parse(bank));
         var inbound = BuildRecommendedInboundUri();
 
         var absaBank = _callbackOptions.Banks.TryGetValue("Absa", out var cfg) ? cfg : null;
@@ -66,6 +66,7 @@ public class CallbackRegistrationAppService(
         RegistrationOperation operation)
     {
         var bank = BankCodeParser.Parse(input.Bank);
+        EnsureRegistrationSupported(bank);
         var correlationId = Guid.NewGuid().ToString("N");
         var request = ResolveRegistration(input);
         var service = resolver.GetPaymentCallbackRegistration(bank);
@@ -77,6 +78,7 @@ public class CallbackRegistrationAppService(
     public async Task<PaymentCallbackRegistrationResultDto> UnregisterAsync(UnregisterPaymentCallbackRequestDto input)
     {
         var bank = BankCodeParser.Parse(input.Bank);
+        EnsureRegistrationSupported(bank);
         var correlationId = Guid.NewGuid().ToString("N");
         var uri = StringValueResolver.FirstNonEmpty(input.Uri, _absaOptions.PaymentCallbackUri)
                   ?? throw new UserFriendlyException(
@@ -152,7 +154,8 @@ public class CallbackRegistrationAppService(
                 Status = PaymentStatuses.Error,
                 ErrorCode = result.Error?.Code,
                 ErrorMessage = result.Error?.Message,
-                AbsaError = AbsaErrorResponses.From(result.Error)
+                BankError = BankErrorResponses.From(result.Error),
+                AbsaError = BankErrorResponses.FromAbsa(result.Error)
             };
         }
 
@@ -166,7 +169,17 @@ public class CallbackRegistrationAppService(
             BankCorrelationId = d.BankCorrelationId,
             ResultDescription = d.ResultDescription,
             ErrorCode = d.ErrorCode,
-            AbsaError = AbsaErrorResponses.FromCode(d.ErrorCode, d.ResultDescription)
+            BankError = BankErrorResponses.FromCode(d.ErrorCode, d.ResultDescription, "Absa"),
+            AbsaError = BankErrorResponses.FromAbsaCode(d.ErrorCode, d.ResultDescription, "Absa")
         };
+    }
+
+    private static void EnsureRegistrationSupported(BankCode bank)
+    {
+        if (bank != BankCode.Absa)
+        {
+            throw new UserFriendlyException(
+                $"Callback URL registration through Bank Hub is not supported for {bank}. Follow that bank's callback onboarding process.");
+        }
     }
 }

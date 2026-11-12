@@ -6,6 +6,9 @@ namespace GPay.Banking.Services;
 
 internal sealed class BankCapabilityResolver(IServiceProvider serviceProvider) : IBankCapabilityResolver
 {
+    public bool SupportsInstantPayment(BankCode bank) =>
+        serviceProvider.GetKeyedService<IInstantPaymentService>(bank.ToString()) is not null;
+
     public IAccountVerificationService GetAccountVerification(BankCode bank) => Resolve<IAccountVerificationService>(bank);
 
     public IInstantPaymentService GetInstantPayment(BankCode bank) => Resolve<IInstantPaymentService>(bank);

@@ -15,11 +15,14 @@ public sealed class BankPaymentIntakeOptions
 
     public BankPaymentIntakeBankOptions Nedbank { get; set; } = new();
 
+    public BankPaymentIntakeBankOptions Capitec { get; set; } = new();
+
     public BankPaymentIntakeBankOptions ForBank(BankCode bank) => bank switch
     {
         BankCode.Absa => Absa,
         BankCode.Fnb => Fnb,
         BankCode.Nedbank => Nedbank,
+        BankCode.Capitec => Capitec,
         _ => throw new NotSupportedException($"Bank Hub-ready payment intake is not configured for '{bank}'.")
     };
 

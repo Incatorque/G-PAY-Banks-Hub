@@ -8,7 +8,7 @@ namespace GPay.Banking;
 /// <remarks>
 /// <para>
 /// Conventional HTTP route:
-/// <c>POST /api/app/callback/process-payment?bank=Absa</c>
+/// <c>POST /api/app/callback/process-payment?bank={BankCode}</c>
 /// </para>
 /// <para>
 /// Anonymous (no JWT). Security:
@@ -16,15 +16,15 @@ namespace GPay.Banking;
 /// <list type="number">
 /// <item>Optional <c>bank</c> query; when omitted, resolved from source IP / domain allow-lists.</item>
 /// <item>Source allow-list check per bank (see <c>BankCallback</c> / Absa callback options).</item>
-/// <item>Bank adapter validates shared <c>Token</c> in the JSON body and optional <c>X-Signature</c>.</item>
+/// <item>The selected bank adapter validates its native callback format and configured authentication policy.</item>
 /// </list>
 /// <para>
-/// Request body is the <b>bank-native</b> callback JSON (not a GPay DTO). Absa may retry on non-success —
-/// this endpoint is idempotent. After several failed retries Absa emails the registered SupportEmail.
+/// Request body is the <b>bank-native</b> callback JSON (not a GPay DTO). Callback retry and support-contact
+/// behavior depends on the bank's integration contract. The endpoint applies payment updates idempotently.
 /// </para>
 /// <para>
-/// Register with Absa: <c>POST /api/PaymentCallback/Register</c> using this URL, a shared Token, and SupportEmail.
-/// Port 443 only.
+/// Banks that provide a callback registration API can be configured through the callback registration endpoint.
+/// Other banks require callback onboarding through their own channel process.
 /// </para>
 /// </remarks>
 public interface ICallbackAppService : IApplicationService
@@ -33,12 +33,12 @@ public interface ICallbackAppService : IApplicationService
     /// Processes a bank payment status callback and updates the matching payment record when found.
     /// </summary>
     /// <param name="bank">
-    /// Bank key: <c>Absa</c>, <c>Fnb</c>, or <c>Nedbank</c>.
+    /// Bank key supported by Bank Hub, for example <c>Absa</c> or <c>Capitec</c>.
     /// Omit to resolve from configured source IP / domain allow-lists.
     /// </param>
     /// <returns>
     /// Acknowledgement shaped for the bank (<c>success</c> / <c>message</c>).
-    /// Absa expects a successful HTTP response with this payload.
+    /// The bank-specific callback adapter determines the expected acknowledgement.
     /// </returns>
     Task<CallbackAckDto> ProcessPaymentAsync(string? bank = null);
 }

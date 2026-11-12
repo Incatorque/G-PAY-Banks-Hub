@@ -17,6 +17,7 @@ internal sealed class GpayOrderSync(
     private const string FnbBankNameToken = "FNB";
     private const string FirstNationalBankNameToken = "FIRST NATIONAL";
     private const string NedbankNameToken = "NEDBANK";
+    private const string CapitecBankNameToken = "CAPITEC";
 
     public async Task<IReadOnlyList<GpayPaymentOrderCandidate>> GetEligiblePaymentOrdersAsync(
         int batchSize,
@@ -33,6 +34,8 @@ internal sealed class GpayOrderSync(
         var includeFnb = enabledBanks.Contains(BankCode.Fnb);
 
         var includeNedbank = enabledBanks.Contains(BankCode.Nedbank);
+
+        var includeCapitec = enabledBanks.Contains(BankCode.Capitec);
 
         var bankHubReadyOrders = dbContext.Set<GpayOrderRow>()
             .AsNoTracking()
@@ -51,7 +54,8 @@ internal sealed class GpayOrderSync(
                   ((includeAbsa && bankName.Contains(AbsaBankNameToken)) ||
                    (includeFnb &&
                     (bankName.Contains(FnbBankNameToken) || bankName.Contains(FirstNationalBankNameToken))) ||
-                   (includeNedbank && bankName.Contains(NedbankNameToken)))
+                   (includeNedbank && bankName.Contains(NedbankNameToken)) ||
+                   (includeCapitec && bankName.Contains(CapitecBankNameToken)))
             select new
             {
                 Order = order,
@@ -389,6 +393,11 @@ internal sealed class GpayOrderSync(
         if (normalized.Contains(NedbankNameToken))
         {
             return BankCode.Nedbank.ToString();
+        }
+
+        if (normalized.Contains(CapitecBankNameToken))
+        {
+            return BankCode.Capitec.ToString();
         }
 
         return bankName.Trim();

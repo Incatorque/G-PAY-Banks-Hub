@@ -25,22 +25,28 @@ public class PaymentResultDto
     /// <summary>Currency of the amount (ISO 4217).</summary>
     public string? Currency { get; set; }
 
-    /// <summary>Bank API reference (Absa Correlations type 3).</summary>
+    /// <summary>Bank API or message reference.</summary>
     public string? ApiReference { get; set; }
 
-    /// <summary>Bank / scheme transaction reference (Absa Correlations type 4).</summary>
+    /// <summary>Bank or scheme transaction reference.</summary>
     public string? TransactionReference { get; set; }
 
-    /// <summary>Source statement reference (Absa Correlations type 1).</summary>
+    /// <summary>Source statement reference, when returned by the bank.</summary>
     public string? SourceStatementRef { get; set; }
 
-    /// <summary>Target statement reference (Absa Correlations type 2).</summary>
+    /// <summary>Target statement reference, when returned by the bank.</summary>
     public string? TargetStatementRef { get; set; }
+
+    /// <summary>Bank-native request message identifier, needed for Capitec status enquiry.</summary>
+    public string? BankMessageIdentification { get; set; }
+
+    /// <summary>Bank-native instruction UETR, needed for Capitec status enquiry.</summary>
+    public string? BankInstructionUetr { get; set; }
 
     /// <summary>Bank-native numeric/string status code when supplied.</summary>
     public string? BankStatusCode { get; set; }
 
-    /// <summary>Bank-specific rail used (for example, Absa RPP / IIP / PAAF or FNB 3PIM).</summary>
+    /// <summary>Bank-specific payment rail used.</summary>
     public string? PaymentRail { get; set; }
 
     /// <summary>Human-readable bank / connector description.</summary>
@@ -55,8 +61,11 @@ public class PaymentResultDto
     /// <summary>Error detail when <see cref="Success"/> is <c>false</c>.</summary>
     public string? ErrorMessage { get; set; }
 
+    /// <summary>Bank-neutral normalized error details, when a bank error catalog is available.</summary>
+    public BankErrorInfo? BankError { get; set; }
+
     /// <summary>
-    /// Absa catalog entry for the bank code on this call. Null when Absa did not return an error code.
+    /// Legacy Absa catalog entry retained for existing API clients. Use <see cref="BankError"/> for all banks.
     /// </summary>
     public AbsaErrorInfo? AbsaError { get; set; }
 
