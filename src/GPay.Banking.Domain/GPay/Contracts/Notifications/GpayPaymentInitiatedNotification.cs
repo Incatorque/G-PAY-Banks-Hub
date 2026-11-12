@@ -35,4 +35,14 @@ public sealed class GpayPaymentInitiatedNotification
     public string? StatusDescription { get; init; }
 
     public string? TransactionReference { get; init; }
+
+    public string? ApiReference { get; init; }
+
+    public bool IsStuckPaymentAlert { get; init; }
+
+    public string? Recipients { get; init; }
+
+    public DateTime? SubmittedAt { get; init; }
+
+    public int? ElapsedMinutes { get; init; }
 }

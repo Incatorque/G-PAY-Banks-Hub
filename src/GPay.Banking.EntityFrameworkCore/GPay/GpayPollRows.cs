@@ -72,6 +72,30 @@ internal sealed class GpayBankRow
     public bool? Active { get; set; }
 }
 
+internal sealed class GpayBankRailRow
+{
+    public Guid Id { get; set; }
+    public Guid BankId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string RailCode { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+}
+
+internal sealed class GpayBankTimeRuleRow
+{
+    public Guid Id { get; set; }
+    public Guid BankId { get; set; }
+    public Guid? BankRailId { get; set; }
+    public bool? IsInternal { get; set; }
+    public bool? IsOnUs { get; set; }
+    public int DayOfWeek { get; set; }
+    public TimeSpan StartTime { get; set; }
+    public TimeSpan EndTime { get; set; }
+    public bool? Active { get; set; }
+    public decimal? MinAmount { get; set; }
+    public decimal? MaxAmount { get; set; }
+}
+
 internal sealed class GpayHolidayRow
 {
     public int Id { get; set; }

@@ -29,6 +29,7 @@ public class BankingEntityFrameworkCoreModule : AbpModule
         });
 
         context.Services.AddScoped<IGpayOrderSync, GpayOrderSync>();
+        context.Services.AddScoped<IBankPaymentConfigurationProvider, BankPaymentConfigurationProvider>();
         context.Services.AddScoped<IGpayPaymentNotifier, SmtpGpayPaymentNotifier>();
     }
 }

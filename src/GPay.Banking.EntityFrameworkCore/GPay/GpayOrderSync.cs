@@ -9,6 +9,7 @@ namespace GPay.Banking.EntityFrameworkCore.GPay;
 /// </summary>
 internal sealed class GpayOrderSync(
     BankingDbContext dbContext,
+    IBankPaymentConfigurationProvider paymentConfigurationProvider,
     ILogger<GpayOrderSync> logger) : IGpayOrderSync
 {
     private const string PaymentAcceptedTransactionCode = "3PIM Transaction";
@@ -184,6 +185,10 @@ internal sealed class GpayOrderSync(
             {
                 order.Id,
                 order.OrderNumber,
+                SubmittedAt = dbContext.Set<GpayOrderHistoryRow>()
+                    .Where(history => history.OrderId == order.Id && history.StatusId == GpayOrderStatusIds.BankHubSubmittedToQueue)
+                    .Select(history => (DateTime?)history.Date)
+                    .Max(),
                 order.ReferenceNumber,
                 BankName = bank.Name,
                 FromAccountNumber = payer.AccountNumber,
@@ -215,7 +220,8 @@ internal sealed class GpayOrderSync(
                 Amount = row.Amount,
                 Currency = row.Currency ?? string.Empty,
                 FromAccountNumber = row.FromAccountNumber,
-                ToAccountNumber = row.ToAccountNumber ?? string.Empty
+                ToAccountNumber = row.ToAccountNumber ?? string.Empty,
+                SubmittedAt = row.SubmittedAt
             })
             .ToList();
 
@@ -311,6 +317,12 @@ internal sealed class GpayOrderSync(
             })
             .ToListAsync(cancellationToken);
 
+        var paymentConfigurations = new Dictionary<string, BankPaymentConfiguration?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var bankName in rows.Select(row => NormalizeBank(row.BankName)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            paymentConfigurations[bankName] = await paymentConfigurationProvider.GetAsync(bankName, cancellationToken);
+        }
+
         return new GpayPaymentQueuePage
         {
             TotalCount = totalCount,
@@ -322,7 +334,11 @@ internal sealed class GpayOrderSync(
                 Reference = ResolvePaymentReference(row.ReferenceNumber, row.OrderNumber),
                 Bank = NormalizeBank(row.BankName),
                 Route = "H2H",
-                Rail = ResolvePaymentRail(row.BankName, row.Amount, row.ServiceType),
+                Rail = ResolvePaymentRail(
+                    row.BankName,
+                    row.Amount,
+                    row.ServiceType,
+                    paymentConfigurations.GetValueOrDefault(NormalizeBank(row.BankName))),
                 Status = row.Status,
                 OrderDate = row.OrderDate,
                 Amount = row.Amount,
@@ -381,7 +397,11 @@ internal sealed class GpayOrderSync(
     private static string ResolvePaymentReference(string? reference, int orderNumber) =>
         string.IsNullOrWhiteSpace(reference) ? orderNumber.ToString() : reference;
 
-    private static string ResolvePaymentRail(string? bankName, decimal amount, string? serviceType)
+    private static string ResolvePaymentRail(
+        string? bankName,
+        decimal amount,
+        string? serviceType,
+        BankPaymentConfiguration? configuration)
     {
         var bankCode = NormalizeBank(bankName);
         if (!Enum.TryParse<BankCode>(bankCode, true, out var bank))
@@ -389,10 +409,17 @@ internal sealed class GpayOrderSync(
             return string.Empty;
         }
 
-        var orderRail = PaymentRailRouting.ForOrder(bank, amount, serviceType);
-        return string.IsNullOrWhiteSpace(orderRail)
-            ? PaymentRailRouting.ForBankRequest(bank, null)
-            : orderRail;
+        try
+        {
+            var orderRail = PaymentRailRouting.ForOrder(bank, amount, serviceType, configuration);
+            return string.IsNullOrWhiteSpace(orderRail)
+                ? PaymentRailRouting.ForBankRequest(bank, null)
+                : orderRail;
+        }
+        catch (InvalidOperationException)
+        {
+            return string.Empty;
+        }
     }
 
     public async Task ApplyPaymentAsync(

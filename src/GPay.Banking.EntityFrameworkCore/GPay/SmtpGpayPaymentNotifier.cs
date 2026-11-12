@@ -24,7 +24,9 @@ internal sealed class SmtpGpayPaymentNotifier(
         GpayPaymentInitiatedNotification notification,
         CancellationToken cancellationToken)
     {
-        var templateFileName = notification.IsStatusCheck
+        var templateFileName = notification.IsStuckPaymentAlert
+            ? "payment-stuck-submitted.html"
+            : notification.IsStatusCheck
             ? notification.IsError
                 ? "payment-status-check-error.html"
                 : "payment-status-check-success.html"
@@ -76,21 +78,30 @@ internal sealed class SmtpGpayPaymentNotifier(
             .Replace("{{ErrorMessage}}", Encode(notification.ErrorMessage ?? statusDescription), StringComparison.Ordinal)
             .Replace("{{StatusDescription}}", Encode(statusDescription), StringComparison.Ordinal)
             .Replace("{{TransactionReference}}", Encode(notification.TransactionReference ?? "-"), StringComparison.Ordinal);
+        html = html
+            .Replace("{{ApiReference}}", Encode(notification.ApiReference ?? "-"), StringComparison.Ordinal)
+            .Replace("{{SubmittedAt}}", notification.SubmittedAt?.ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture) ?? "-", StringComparison.Ordinal)
+            .Replace("{{ElapsedMinutes}}", notification.ElapsedMinutes?.ToString(CultureInfo.InvariantCulture) ?? "-", StringComparison.Ordinal);
 
         await SendAsync(
             notificationSettings,
             environmentName,
             environmentKey,
-            "PaymentInitiatedRecipients",
+            notification.IsStuckPaymentAlert ? "AbsaCapi:StuckPaymentAlertRecipients" : "PaymentInitiatedRecipients",
             BuildSubject(notification),
             html,
-            cancellationToken);
+            cancellationToken,
+            notification.Recipients);
     }
 
     private static string BuildSubject(GpayPaymentInitiatedNotification notification)
     {
-        var operation = notification.IsStatusCheck ? "Payment Status" : "Payment Initiation";
-        var outcome = notification.IsError ? "Failed" : notification.Status;
+        var operation = notification.IsStuckPaymentAlert
+            ? "Incident Report - Payment Still Submitted"
+            : notification.IsStatusCheck ? "Payment Status" : "Payment Initiation";
+        var outcome = notification.IsStuckPaymentAlert
+            ? string.Empty
+            : notification.IsError ? "Failed" : notification.Status;
         var subject = string.Join(
             " - ",
             new[] { notification.Bank, operation, outcome, notification.OrderNumber }
@@ -109,7 +120,8 @@ internal sealed class SmtpGpayPaymentNotifier(
         string recipientsKey,
         string subject,
         string body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? recipientOverride = null)
     {
         var host = section["SmtpHost"];
         var from = StringValueResolver.FirstNonEmpty(
@@ -118,7 +130,7 @@ internal sealed class SmtpGpayPaymentNotifier(
                 ? null
                 : section[$"FromByEnvironment:{environmentName}"],
             section["From"]);
-        var recipients = section[recipientsKey];
+        var recipients = recipientOverride ?? section[recipientsKey];
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(recipients))
         {
             logger.LogWarning(

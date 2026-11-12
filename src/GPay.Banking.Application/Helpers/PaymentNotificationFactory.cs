@@ -4,6 +4,33 @@ namespace GPay.Banking.Helpers;
 
 internal static class PaymentNotificationFactory
 {
+    public static GpayPaymentInitiatedNotification StuckSubmittedPayment(
+        GpayPaymentStatusCandidate order,
+        DateTime submittedAt,
+        int elapsedMinutes,
+        string recipients,
+        string? transactionReference,
+        string? apiReference,
+        string? statusDescription) => new()
+        {
+            Bank = order.Bank,
+            OrderNumber = order.OrderNumber,
+            Amount = order.Amount,
+            Currency = order.Currency,
+            FromAccountNumber = order.FromAccountNumber,
+            ToAccountNumber = order.ToAccountNumber,
+            Reference = order.Reference,
+            Status = "Submitted",
+            IsStatusCheck = true,
+            IsStuckPaymentAlert = true,
+            Recipients = recipients,
+            SubmittedAt = submittedAt,
+            ElapsedMinutes = elapsedMinutes,
+            TransactionReference = transactionReference,
+            ApiReference = apiReference,
+            StatusDescription = statusDescription ?? "Absa continues to report this payment as Submitted."
+        };
+
     public static GpayPaymentInitiatedNotification StatusCheckError(
         GpayPaymentStatusCandidate order,
         string errorCode,

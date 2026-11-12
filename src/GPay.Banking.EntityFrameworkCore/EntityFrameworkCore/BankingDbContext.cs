@@ -161,6 +161,34 @@ public class BankingDbContext : AbpDbContext<BankingDbContext>
             b.Property(x => x.Id).HasColumnName("PkBankID");
         });
 
+        builder.Entity<GpayBankRailRow>(b =>
+        {
+            b.ToTable("BankRail", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("PkBankRailId");
+            b.Property(x => x.BankId).HasColumnName("FkBankId");
+            b.Property(x => x.Name).HasColumnName("Name");
+            b.Property(x => x.RailCode).HasColumnName("RailCode");
+            b.Property(x => x.IsActive).HasColumnName("IsActive");
+        });
+
+        builder.Entity<GpayBankTimeRuleRow>(b =>
+        {
+            b.ToTable("BankTime", "dbo");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("PkBankTimeID");
+            b.Property(x => x.BankId).HasColumnName("FkBankID");
+            b.Property(x => x.BankRailId).HasColumnName("FkBankRailId");
+            b.Property(x => x.IsInternal).HasColumnName("IsInternal");
+            b.Property(x => x.IsOnUs).HasColumnName("IsOnUs");
+            b.Property(x => x.DayOfWeek).HasColumnName("DayOfWeek");
+            b.Property(x => x.StartTime).HasColumnName("StartTime");
+            b.Property(x => x.EndTime).HasColumnName("EndTime");
+            b.Property(x => x.Active).HasColumnName("Active");
+            b.Property(x => x.MinAmount).HasColumnName("MinAmount").HasPrecision(16, 4);
+            b.Property(x => x.MaxAmount).HasColumnName("Amount").HasPrecision(16, 4);
+        });
+
         builder.Entity<GpayHolidayRow>(b =>
         {
             b.ToTable("Holiday", "dbo");

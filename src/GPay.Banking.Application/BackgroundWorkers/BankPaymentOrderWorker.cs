@@ -39,6 +39,8 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
 
         var initiator = services.GetRequiredService<IInstantPaymentInitiator>();
 
+        var paymentConfiguration = services.GetRequiredService<IBankPaymentConfigurationProvider>();
+
         var uowManager = services.GetRequiredService<IUnitOfWorkManager>();
 
         IReadOnlyList<GpayPaymentOrderCandidate> candidates;
@@ -77,10 +79,29 @@ public sealed class BankPaymentOrderWorker : AsyncPeriodicBackgroundWorkerBase
                     continue;
                 }
 
-                var paymentRail = PaymentRailRouting.ForOrder(
-                    BankCodeParser.Parse(order.Bank),
-                    order.Amount,
-                    order.ServiceType);
+                var bankCode = BankCodeParser.Parse(order.Bank);
+                var bankRules = await paymentConfiguration.GetAsync(order.Bank);
+                string paymentRail;
+                try
+                {
+                    paymentRail = PaymentRailRouting.ForOrder(
+                        bankCode,
+                        order.Amount,
+                        order.ServiceType,
+                        bankRules);
+                }
+                catch (Exception ex)
+                {
+                    PaymentRuleDiagnostics.LogRailResolutionFailure(
+                        logger,
+                        order.Bank,
+                        order.OrderNumber,
+                        order.Amount,
+                        order.ServiceType,
+                        bankRules,
+                        ex);
+                    throw;
+                }
 
                 var paymentRequest = new InitiatePaymentRequestDto
                 {

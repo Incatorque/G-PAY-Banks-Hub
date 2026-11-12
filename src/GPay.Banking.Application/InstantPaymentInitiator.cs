@@ -21,6 +21,7 @@ internal sealed class InstantPaymentInitiator(
     IBankRouterService bankRouter,
     IGpayOrderSync gpayOrderSync,
     IGpayPaymentNotificationQueue notifications,
+    IBankPaymentConfigurationProvider paymentConfigurationProvider,
     IAbsaPaymentSchedule absaPaymentSchedule,
     ILogger<InstantPaymentInitiator> logger) : IInstantPaymentInitiator
 {
@@ -75,12 +76,44 @@ internal sealed class InstantPaymentInitiator(
 
             bank = BankCodeParser.Parse(input.Bank);
             bankStorageCode = bank.ToString();
-            notificationRail = PaymentRailRouting.ForBankRequest(bank, input.PaymentRail);
+            var bankConfiguration = await paymentConfigurationProvider.GetAsync(bankStorageCode, cancellationToken);
+            try
+            {
+                notificationRail = PaymentRailRouting.ForBankRequest(
+                    bank,
+                    input.PaymentRail,
+                    input.Amount,
+                    bankConfiguration);
+            }
+            catch (Exception ex)
+            {
+                PaymentRuleDiagnostics.LogRailResolutionFailure(
+                    logger,
+                    bankStorageCode,
+                    notificationOrderNumber,
+                    input.Amount,
+                    input.PaymentRail,
+                    bankConfiguration,
+                    ex);
+                throw;
+            }
+
+            domainRequest = domainRequest with { PaymentRail = notificationRail };
+
+            PaymentRuleDiagnostics.LogRailSelection(
+                logger,
+                bankStorageCode,
+                notificationOrderNumber,
+                input.Amount,
+                input.PaymentRail,
+                notificationRail,
+                bankConfiguration);
 
             if (bank == BankCode.Absa && string.Equals(notificationRail, PaymentRailRouting.AbsaPaaf, StringComparison.Ordinal))
             {
                 var deferralReason = await absaPaymentSchedule.GetPaafDeferralReasonAsync(
                     input.Amount,
+                    bankStorageCode,
                     input.BeneficiaryBank,
                     cancellationToken);
                 if (deferralReason is not null)

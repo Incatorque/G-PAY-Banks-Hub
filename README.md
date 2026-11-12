@@ -63,5 +63,24 @@ In Swagger UI use **Authorize** with a Bearer token for protected operations whe
 
 Global settings live in `src\GPay.Banking.HttpApi.Host\appsettings.json`. Bank settings live in `appsettings.<BankCode>.json` beside it (for example, `appsettings.Absa.json`). The host loads an optional bank file for every `BankCode` at startup. Keep shared settings such as database, authentication, SMTP, and polling intervals in the global file; place bank-specific API, callback, and bank enablement settings in that bank's file. `appsettings.Local.json` and `GPAY_` environment variables can override these values.
 
-Absa calls always use the configured CAPI endpoints; configure valid credentials and certificate settings before running payments or AVS checks. Tracked settings contain no bank or SMTP credentials; configure them through user-secrets, `appsettings.Local.json`, or `GPAY_` environment variables.
+Absa calls always use the configured CAPI endpoints; configure valid credentials and certificate settings before running payments or AVS checks. Keep credentials out of committed settings and provide them through user-secrets, `appsettings.Local.json`, or protected `GPAY_` environment variables.
+
+Absa stuck-payment incident reports use `AbsaCapi:StuckPaymentAlertRecipients` from `appsettings.Absa.json` (currently `dev@gpay.co.za`). When a status poll still returns `Submitted` more than 20 minutes after the G-PAY order entered its submitted status, Bank Hub queues an incident report addressed to Absa CAPI Support, including payment/order references and the latest bank response. It requests investigation and confirmation of the final payment status. One report is queued per order during that host process; a host restart can send it again if the payment is still stuck. The configured address can contain comma- or semicolon-separated recipients. SMTP transport is taken from `GpayNotifications`.
+
+### Elasticsearch and Kibana
+
+Serilog Elasticsearch logging is configured in `src/GPay.Banking.HttpApi.Host` (the Bank Hub HTTP API host). It writes to the existing daily file and console sinks as well as Elasticsearch when enabled. Configure the destination under `Elasticsearch` in `appsettings.json`, `appsettings.Local.json`, or environment variables:
+
+```json
+{
+  "Elasticsearch": {
+    "Enabled": true,
+    "Url": "http://10.10.1.100:9200",
+    "IndexPrefix": "bankhub",
+    "AutoRegisterTemplate": true
+  }
+}
+```
+
+The default index pattern is `<environment>-<index-prefix>-yyyy.MM.dd`, for example `development-bankhub-2026.11.12`. The environment comes from `ASPNETCORE_ENVIRONMENT`; if unset, ASP.NET Core uses `Production`. In Kibana, create a data view such as `*-bankhub-*` and select `@timestamp` as the time field. Elasticsearch sink diagnostics are written to standard error; daily local logs remain under the host's `Logs` directory. Ensure the IIS application-pool identity can write there and that the host can reach the configured Elasticsearch URL.
 

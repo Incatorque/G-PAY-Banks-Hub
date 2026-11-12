@@ -18,4 +18,7 @@ public sealed class GpayPaymentStatusCandidate
     public string FromAccountNumber { get; init; } = string.Empty;
 
     public string ToAccountNumber { get; init; } = string.Empty;
+
+    /// <summary>Time when this order entered its current Bank Hub submitted state.</summary>
+    public DateTime? SubmittedAt { get; init; }
 }

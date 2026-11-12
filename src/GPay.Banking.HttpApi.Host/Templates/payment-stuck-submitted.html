@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Absa Payment Status Incident Report</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f7f5;font-family:Arial,sans-serif;color:#26332b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7f5;padding:28px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #dce7e0;border-radius:12px;overflow:hidden;">
+        <tr><td style="height:5px;background:#d97706;"></td></tr>
+        <tr><td style="padding:26px 30px 12px;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#187144;text-transform:uppercase;">G-PAY Bank Hub · {{EnvironmentBadge}}</div>
+          <h1 style="margin:16px 0 8px;font-size:23px;color:#8a4b08;">Incident Report: Payment Status Still Submitted</h1>
+          <p style="margin:0;color:#5d6b62;font-size:14px;line-height:1.55;">Dear Absa CAPI Support,</p>
+          <p style="margin:10px 0 0;color:#5d6b62;font-size:14px;line-height:1.55;">G-PAY is reporting a payment whose status remains <strong>Submitted</strong>. The payment was submitted more than 20 minutes ago and has remained in this state for <strong>{{ElapsedMinutes}} minutes</strong>. Please investigate this transaction and confirm whether it was accepted, rejected, or is still processing, including its latest status.</p>
+        </td></tr>
+        <tr><td style="padding:16px 30px 26px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:14px;">
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Order number</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;font-weight:600;">{{OrderNumber}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Payment reference</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;">{{Reference}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Absa transaction reference</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;">{{TransactionReference}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Absa API reference</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;">{{ApiReference}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Amount</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;font-weight:600;">{{Currency}} {{Amount}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Submitted at</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;">{{SubmittedAt}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Current bank status</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#8a4b08;font-weight:700;">{{Status}}</td></tr>
+            <tr><td style="padding:11px 0;border-bottom:1px solid #edf1ee;color:#66736b;">Latest bank response</td><td align="right" style="padding:11px 0;border-bottom:1px solid #edf1ee;">{{StatusDescription}}</td></tr>
+            <tr><td style="padding:11px 0;color:#66736b;">Paid from account</td><td align="right" style="padding:11px 0;">{{FromAccountNumber}}</td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:15px 30px;background:#f7f9f8;border-top:1px solid #e7ede9;color:#77837b;font-size:11px;line-height:1.5;">This incident report was generated automatically by G-PAY Bank Hub after the payment remained Submitted beyond the 20-minute threshold. Please respond with the investigation outcome and confirmed payment status.</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
